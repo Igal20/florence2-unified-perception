@@ -719,35 +719,17 @@ class Florence2PostProcesser(object):
         # Remove any trailing hashtags, numbers, or tags from the description
         general_description = re.sub(r'[#<].*?(\s|$)|\d+$', '', general_description).strip()
 
-        # Pattern to extract the image ranking score
-        ims_pattern = re.compile(r'<ims>(.*?)</s>', re.DOTALL)
-        ims_match = ims_pattern.search(text)
-        image_ranking_score = ims_match.group(1).strip() if ims_match else 'Not specified'
-
-        # Pattern to extract the hashtags
-        hashtags_pattern = re.compile(r'<hashtags>(.*?)</s>', re.DOTALL)
-        hashtags_match = hashtags_pattern.search(text)
-        hashtags = (
-            ', '.join([tag.strip() for tag in hashtags_match.group(1).split(',')])
-            if hashtags_match else 'Not specified'
-        )
-
-        # Remove `<ims>` or any numerical data mistakenly included in hashtags
-        hashtags = re.sub(r'<.*?>|\s?\d+', '', hashtags).strip()
-
         # Pattern to extract character details with more flexibility
         character_pattern = re.compile(
             r'<loc_(\d+)><loc_(\d+)><loc_(\d+)><loc_(\d+)>'  # Bounding box coordinates
-            r'(?:\s*<emo>\s*(.*?))?'  # Emotion
-            r'(?:\s*<jco>\s*(.*?))?'  # Jersey color
-            r'(?:\s*<jna>\s*(.*?))?'  # Jersey name
-            r'(?:\s*<jnu>\s*(.*?))?'  # Jersey number
-            r'(?:\s*<pose>\s*(.*?))?'  # Pose
-            r'(?:\s*<tname>\s*(.*?))?'  # Jersey Team name
-            r'(?=<loc_|<gdesc>|</s>)',  # Lookahead for other tokens
-            re.DOTALL
-
-        )
+            r'(?:\s*<emo>\s*(.*?))?'        # Emotion
+            r'(?:\s*<jco>\s*(.*?))?'        # Jersey color
+            r'(?:\s*<jna>\s*(.*?))?'        # Jersey name
+            r'(?:\s*<jnu>\s*(.*?))?'        # Jersey number
+            r'(?:\s*<pose>\s*(.*?))?'       # Pose
+            r'(?:\s*<tname>\s*(.*?))?'      # Jersey Team name
+            r'(?=<loc_|<gdesc>|</s>)',      # Lookahead for other tokens
+            re.DOTALL)
 
         # Extract character details
         characters = []
@@ -774,9 +756,7 @@ class Florence2PostProcesser(object):
         # Form the final dictionary
         result = {
             'characters': characters,
-            'general_description': general_description,
-            'image_ranking_score': image_ranking_score,
-            'hashtags': hashtags
+            'general_description': general_description
         }
         return result
 

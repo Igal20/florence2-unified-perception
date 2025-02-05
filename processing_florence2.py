@@ -86,7 +86,7 @@ class Florence2Processor(ProcessorMixin):
         tokens_to_add = {
             'additional_special_tokens': \
                 tokenizer.additional_special_tokens + \
-                ['<emo>', '<pose>', '<jnu>', '<jna>', '<jco>', '<ims>', '<tname>', '<hashtags>', '<gdesc>'] + \
+                ['<emo>', '<pose>', '<jnu>', '<jna>', '<jco>', '<tname>', '<gdesc>'] + \
                 ['<od>', '</od>', '<ocr>', '</ocr>'] + \
                 [f'<loc_{x}>' for x in range(1000)] + \
                 ['<cap>', '</cap>', '<ncap>', '</ncap>', '<dcap>', '</dcap>', '<grounding>', '</grounding>',

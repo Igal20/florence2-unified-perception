@@ -31,6 +31,44 @@ While Florence-2 is a powerful open-source multimodal model, it may struggle wit
    - Ensures bounding box and metadata alignment for downstream applications.
 
 
+## Explanation of `custom_caption_dataset.py`
+
+The `custom_caption_dataset.py` file defines a PyTorch dataset class that processes images and their corresponding JSON annotations for training and fine-tuning Florence-2 with structured captions. It ensures proper dataset preparation by loading, filtering, and formatting annotations into a structured format.
+
+### Key Features
+1. **Dataset Splitting** – The dataset is split into training, validation, and test sets based on predefined percentages.
+2. **Tokenized Captions** – Converts raw annotations into structured text with predefined tokens (e.g., `<emo>` for emotion, `<pose>` for pose).
+3. **Image-Annotation Pairing** – Matches each image with its corresponding annotation JSON file.
+4. **Annotation Parsing** – Extracts and formats relevant attributes such as character coordinates, team names, and general descriptions.
+5. **Configurable Settings** – Allows customization of caption keys, number of characters processed, and whether to tokenize outputs.
+
+### How It Works
+- The dataset scans a folder containing images and their corresponding JSON annotations.
+- It reads and filters relevant attributes from the JSON files.
+- It converts the attributes into a structured text format, replacing raw values with predefined tokens.
+- It loads image-caption pairs into a PyTorch dataset for use in training models like Florence-2.
+
+### Example Usage
+```python
+from pathlib import Path
+from custom_caption_dataset import CustomCaptionDataset
+
+images_folder = Path("/path/to/images")
+jsons_folder = Path("/path/to/annotations")
+split = "train"
+caption_keys = ["character_coordinates", "emotion", "pose", "jersey_color", "jersey_number", "jersey_name", "general_description"]
+
+dataset = CustomCaptionDataset(
+    split=split,
+    images_folder=images_folder,
+    jsons_folder=jsons_folder,
+    caption_keys=caption_keys,
+    convert_to_tokens=True
+)
+
+print(dataset[0])
+print(f"Dataset size: {len(dataset)}")
+```
 ## Contribution
 Feel free to open an **issue** or **pull request** if you find any bugs or want to suggest improvements!
 

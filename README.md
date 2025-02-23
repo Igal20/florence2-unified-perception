@@ -166,4 +166,4 @@ Feel free to open an **issue** or **pull request** if you find any bugs or want 
 ---
 
 For a **detailed explanation**, refer to the Medium article:  
-🔗 [Expanding Florence-2's Vocabulary: A Guide to Adding Custom Tokens During Fine-Tuning](#) *(Insert actual link here)*
+🔗 [Expanding Florence-2's Vocabulary: A Guide to Adding Custom Tokens During Fine-Tuning](https://medium.com/@ygal20/expanding-florence-2s-vocabulary-an-advanced-guide-to-adding-custom-tokens-during-fine-tuning-138fab660b64)

@@ -1,0 +1,78 @@
+{
+    "general_description": "The image depicts an intense National Hockey League (NHL) game between two teams in the 2023-24 season. Players are actively engaged in the match. The scene is filled with action, with players focusing on controlling the puck on the ice.",
+    "image_size": [
+        1080,
+        1920
+    ],
+    "number_of_characters": 4,
+    "hashtags": "['#NHL', '#Hockey', '#GameDay', '#IceHockey', '#Sports']",
+    "image_ranking_score": 8.0,
+    "original_image_url": "URL_TO_AN_IMAGE",
+    "image_id": 9999,
+    "characters": [
+        {
+            "character": 4,
+            "character_coordinates": [
+                0.721,
+                0.015,
+                0.945,
+                0.632
+            ],
+            "emotion": "Focused",
+            "pose": "In Action",
+            "jersey_color": "White and Green",
+            "jersey_number": "None",
+            "jersey_name": "None",
+            "team_name": "None",
+            "is_player": "YES"
+        },
+        {
+            "character": 1,
+            "character_coordinates": [
+                0.386,
+                0.079,
+                0.868,
+                0.996
+            ],
+            "emotion": "Focused",
+            "pose": "In Action",
+            "jersey_color": "White and Green",
+            "jersey_number": "92",
+            "jersey_name": "None",
+            "team_name": "None",
+            "is_player": "YES"
+        },
+        {
+            "character": 2,
+            "character_coordinates": [
+                0.131,
+                0.044,
+                0.271,
+                0.798
+            ],
+            "emotion": "Focused",
+            "pose": "In Action",
+            "jersey_color": "Black and Orange",
+            "jersey_number": "None",
+            "jersey_name": "None",
+            "team_name": "None",
+            "is_player": "YES"
+        },
+        {
+            "character": 3,
+            "character_coordinates": [
+                0.209,
+                0.131,
+                0.542,
+                0.996
+            ],
+            "emotion": "Focused",
+            "pose": "In Action",
+            "jersey_color": "Black",
+            "jersey_number": "19",
+            "jersey_name": "None",
+            "team_name": "None",
+            "is_player": "YES"
+        }
+    ]
+}

@@ -1,5 +1,4 @@
 # Expanding Florence-2's Vocabulary: A Guide to Adding Custom Tokens During Fine-Tuning
-# ADD EXMPLATION ABOUT CUSTOM_CAPTION_DATASET.PY
 ## Overview
 This repository contains an **updated version** of the `processing_florence2.py` file, which extends the **Florence-2 vision-language model (VLM)** with **custom tokens** and **expanded vocabulary** for fine-tuning. These modifications enhance the model’s ability to understand specialized image attributes in a **single inference pass**, reducing redundancy and improving accuracy.
 
@@ -69,6 +68,49 @@ dataset = CustomCaptionDataset(
 print(dataset[0])
 print(f"Dataset size: {len(dataset)}")
 ```
+
+
+## Example of an Annotation File
+
+The `example_of_annotations_file.json` provides a structured format for image metadata, including details about the scene, characters, and their attributes.
+
+### JSON Structure
+```json
+{
+    "general_description": "The image depicts an intense National Hockey League (NHL) game between two teams in the 2023-24 season. Players are actively engaged in the match. The scene is filled with action, with players focusing on controlling the puck on the ice.",
+    "image_size": [
+        1080,
+        1920
+    ],
+    "number_of_characters": 4,
+    "hashtags": "['#NHL', '#Hockey', '#GameDay', '#IceHockey', '#Sports']",
+    "image_ranking_score": 8.0,
+    "original_image_url": "URL_TO_AN_IMAGE",
+    "image_id": 9999,
+    "characters": [
+        {
+            "character": 4,
+            "character_coordinates": [
+                0.721,
+                0.015,
+                0.945,
+                0.632
+            ],
+            "emotion": "Focused",
+            "pose": "In Action",
+            "jersey_color": "White and Green",
+            "jersey_number": "None",
+            "jersey_name": "None",
+            "team_name": "None",
+            "is_player": "YES"
+        }
+    ]
+}
+```
+
+This JSON file serves as input for `custom_caption_dataset.py`, ensuring structured metadata extraction and enabling Florence-2 to process and understand domain-specific elements effectively.
+
+
 ## Contribution
 Feel free to open an **issue** or **pull request** if you find any bugs or want to suggest improvements!
 
@@ -76,4 +118,3 @@ Feel free to open an **issue** or **pull request** if you find any bugs or want 
 
 For a **detailed explanation**, refer to the Medium article:  
 🔗 [Expanding Florence-2's Vocabulary: A Guide to Adding Custom Tokens During Fine-Tuning](#) *(Insert actual link here)*
-

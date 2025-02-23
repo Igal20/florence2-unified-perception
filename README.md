@@ -1,4 +1,4 @@
-# Expanding Florence-2's Vocabulary: A Guide to Adding Custom Tokens During Fine-Tuning
+# Expanding Florence-2's Vocabulary: An Advanced Guide to Adding Custom Tokens During Fine-Tuning
 ## Overview
 This repository contains an **updated version** of the `processing_florence2.py` file, which extends the **Florence-2 vision-language model (VLM)** with **custom tokens** and **expanded vocabulary** for fine-tuning. These modifications enhance the model’s ability to understand specialized image attributes in a **single inference pass**, reducing redundancy and improving accuracy.
 

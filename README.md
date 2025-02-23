@@ -103,6 +103,54 @@ The `example_of_annotations_file.json` provides a structured format for image me
             "jersey_name": "None",
             "team_name": "None",
             "is_player": "YES"
+        },
+        {
+            "character": 1,
+            "character_coordinates": [
+                0.386,
+                0.079,
+                0.868,
+                0.996
+            ],
+            "emotion": "Focused",
+            "pose": "In Action",
+            "jersey_color": "White and Green",
+            "jersey_number": "92",
+            "jersey_name": "None",
+            "team_name": "None",
+            "is_player": "YES"
+        },
+        {
+            "character": 2,
+            "character_coordinates": [
+                0.131,
+                0.044,
+                0.271,
+                0.798
+            ],
+            "emotion": "Focused",
+            "pose": "In Action",
+            "jersey_color": "Black and Orange",
+            "jersey_number": "None",
+            "jersey_name": "None",
+            "team_name": "None",
+            "is_player": "YES"
+        },
+        {
+            "character": 3,
+            "character_coordinates": [
+                0.209,
+                0.131,
+                0.542,
+                0.996
+            ],
+            "emotion": "Focused",
+            "pose": "In Action",
+            "jersey_color": "Black",
+            "jersey_number": "19",
+            "jersey_name": "None",
+            "team_name": "None",
+            "is_player": "YES"
         }
     ]
 }

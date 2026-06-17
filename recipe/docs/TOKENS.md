@@ -15,6 +15,7 @@ For the sports recipe, the custom token list is:
 | `<gdesc>` | General-description prefix. Free English text follows until `</s>`. |
 | `<nath>` | Number-of-athletes prefix. A small integer follows. |
 | `<bbox>` … `</bbox>` | Bounding-box bracket. Exactly 4 `<loc_*>` inside. |
+| `<team>` | Per-player team-affiliation prefix. A short class label follows (e.g. `"A"`, `"B"`). Use a small closed vocabulary; never the actual team name. |
 | `<ocr>` | OCR span trigger. Text + 8 `<loc_*>` follow. |
 | `<player_1>` … `<player_8>` and `</player_1>` … `</player_8>` | One open/close pair per entity index. Cap = 8 entities per image. |
 
@@ -38,7 +39,7 @@ The minimal, correct registration is this:
 from transformers import AutoModelForCausalLM, AutoProcessor
 
 CUSTOM_TOKENS = [
-    "<stype>", "<gdesc>", "<nath>", "<bbox>", "</bbox>", "<ocr>",
+    "<stype>", "<gdesc>", "<nath>", "<bbox>", "</bbox>", "<team>", "<ocr>",
     "<player_1>", "</player_1>", "<player_2>", "</player_2>",
     "<player_3>", "</player_3>", "<player_4>", "</player_4>",
     "<player_5>", "</player_5>", "<player_6>", "</player_6>",

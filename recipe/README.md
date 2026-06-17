@@ -39,17 +39,17 @@ After training, one image goes in. One forward pass later, you get a single toke
 
 ```
 <MULTIMODAL_VISUAL_CAPTION><stype>In-Game<nath>3
-  <player_1><bbox><loc_412><loc_205><loc_589><loc_734></bbox>
+  <player_1><bbox><loc_412><loc_205><loc_589><loc_734></bbox><team>A
     <ocr>23<loc_488><loc_412><loc_521><loc_412><loc_521><loc_456><loc_488><loc_456>
   </player_1>
-  <player_2><bbox><loc_152><loc_198><loc_312><loc_701></bbox>
+  <player_2><bbox><loc_152><loc_198><loc_312><loc_701></bbox><team>B
     <ocr>7<loc_212><loc_390><loc_239><loc_390><loc_239><loc_430><loc_212><loc_430>
   </player_2>
-  <player_3><bbox><loc_720><loc_215><loc_870><loc_690></bbox></player_3>
+  <player_3><bbox><loc_720><loc_215><loc_870><loc_690></bbox><team>A</player_3>
 <gdesc>Three basketball players competing for a rebound under the basket during an NBA game.</s>
 ```
 
-Detection, OCR (jersey numbers with polygons), entity association, and a natural-language description — all in one structured output, all bound to each player by construction. Parsing is two regex passes.
+Detection, OCR (jersey numbers with polygons), team affiliation (`<team>A`/`<team>B`), entity association, and a natural-language description — all in one structured output, all bound to each player by construction. Parsing is a handful of regex passes.
 
 That single string is the heart of the recipe. The entire training pipeline exists to teach a Florence-2 decoder to emit it correctly, given an image.
 

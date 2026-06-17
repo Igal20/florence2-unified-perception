@@ -13,6 +13,7 @@ One image, one annotation file with the same stem, containing these fields (name
 | `general_description` | recommended | One free-form English sentence about the scene. If empty, no `<gdesc>` block is emitted. |
 | `players` (entities) | yes | A list of entity dicts. Each entity has a bbox and optionally an OCR list. |
 | `players[i].bbox` | yes per entity | `[x1, y1, x2, y2]` in pixel space, top-left + bottom-right. |
+| `players[i].team` | optional per entity | Team-affiliation label from a small closed vocabulary, e.g. `"A"` or `"B"`. Omit (do not set to `null`) when affiliation can't be determined — referees, partial occlusion, unaffiliated bystanders. |
 | `players[i].ocr` | optional per entity | List of `{text, polygon}` items. Polygon = 4 `[x, y]` points in pixel space. |
 
 A held-out benchmark set should live outside this dataset (or be flagged by a hash list and filtered out of train/val) so you can evaluate without leakage.
@@ -23,7 +24,7 @@ For one image, the serialised string must look exactly like this — same token 
 
 ```
 <MULTIMODAL_VISUAL_CAPTION><stype>{SCENE_TYPE}<nath>{N}
-  <player_1><bbox><loc_*><loc_*><loc_*><loc_*></bbox>
+  <player_1><bbox><loc_*><loc_*><loc_*><loc_*></bbox><team>{TEAM}
     <ocr>{TEXT}<loc_*><loc_*><loc_*><loc_*><loc_*><loc_*><loc_*><loc_*>
     ... (more ocr items per player) ...
   </player_1>
@@ -37,9 +38,10 @@ Rules the LLM you task with building the serialiser must respect:
 1. **Header first.** `<stype>{class}` then `<nath>{count}` always come before any player block.
 2. **One block per entity, indexed.** Use `<player_1>...</player_1>`, `<player_2>...</player_2>`, etc. Cap at 8 (or whatever `MAX_PLAYER_INDEX` you choose), drop the extras.
 3. **Bbox immediately inside a player block.** `<bbox>` then exactly 4 `<loc_*>` then `</bbox>`.
-4. **OCR is text + polygon, glued together.** Always `<ocr>` then the literal text (no spaces inside the token), then exactly 8 `<loc_*>` (the 4 polygon corners as x,y pairs). The polygon **must** come immediately after the text — that gluing is what suppresses hallucinated jersey numbers.
-5. **Optional fields are skipped, not emitted as empty.** No `<ocr>` block at all for players with no readable text; no `<gdesc>` block at all for images without a caption.
-6. **`<gdesc>` is last,** before `</s>`. (You can put it first instead, but pick one ordering and stay with it across the entire dataset — Stage 1 will only converge if the order is consistent.)
+4. **Team comes after the bbox, before any OCR.** `<team>` followed by exactly one short class label from a small closed vocabulary (we used `"A"` and `"B"` — two teams in frame is the common case for sports). Anything outside the vocabulary is dropped, not coerced to a default. The team label sits *between* `</bbox>` and the first `<ocr>` so that detection and affiliation are always emitted as one atomic block per entity.
+5. **OCR is text + polygon, glued together.** Always `<ocr>` then the literal text (no spaces inside the token), then exactly 8 `<loc_*>` (the 4 polygon corners as x,y pairs). The polygon **must** come immediately after the text — that gluing is what suppresses hallucinated jersey numbers.
+6. **Optional fields are skipped, not emitted as empty.** No `<ocr>` block at all for players with no readable text; no `<team>` block at all for players whose affiliation is unknown; no `<gdesc>` block at all for images without a caption.
+7. **`<gdesc>` is last,** before `</s>`. (You can put it first instead, but pick one ordering and stay with it across the entire dataset — Stage 1 will only converge if the order is consistent.)
 
 ## Quantising coordinates
 
@@ -65,12 +67,14 @@ To make the contract concrete, here is one image, its annotation file, and the e
   "players": [
     {
       "bbox": [220, 30, 560, 670],
+      "team": "A",
       "ocr": [
         { "text": "28", "polygon": [[275, 150], [360, 150], [360, 215], [275, 215]] }
       ]
     },
     {
       "bbox": [510, 90, 820, 660],
+      "team": "B",
       "ocr": [
         { "text": "45", "polygon": [[685, 265], [750, 265], [750, 320], [685, 320]] }
       ]
@@ -83,10 +87,10 @@ To make the contract concrete, here is one image, its annotation file, and the e
 
 ```
 <MULTIMODAL_VISUAL_CAPTION><stype>In-Game<nath>2
-  <player_1><bbox><loc_214><loc_43><loc_546><loc_982></bbox>
+  <player_1><bbox><loc_214><loc_43><loc_546><loc_982></bbox><team>A
     <ocr>28<loc_268><loc_219><loc_351><loc_219><loc_351><loc_315><loc_268><loc_315>
   </player_1>
-  <player_2><bbox><loc_498><loc_131><loc_800><loc_967></bbox>
+  <player_2><bbox><loc_498><loc_131><loc_800><loc_967></bbox><team>B
     <ocr>45<loc_668><loc_388><loc_732><loc_388><loc_732><loc_469><loc_668><loc_469>
   </player_2>
 <gdesc>Two hockey players battle for the puck along the boards: a Forest Trykers forward wearing #28 attempts to shield it from the opposing Iron Falcons captain #45.</s>
@@ -95,9 +99,10 @@ To make the contract concrete, here is one image, its annotation file, and the e
 Things worth noticing in the string above:
 
 * **`<nath>2`** — the explicit entity count must equal the number of `<player_N>` blocks. The model checks this against itself, and a mismatch is a strong "this generation went off the rails" signal at inference time.
-* **OCR text and its polygon are adjacent** — `<ocr>28<loc_...>` and `<ocr>45<loc_...>`. That gluing (rule 4 of the grammar) is what binds the recognised text to a region of the image and suppresses free-floating jersey-number hallucinations.
+* **Team affiliation is per-player and abstract** — `<team>A` for the Forest Trykers, `<team>B` for the Iron Falcons. The model never sees the real team names; it learns the *relative* concept "all players sharing the same jersey design are the same team", which generalises across leagues, sports, and unseen uniforms. Keeping the value vocabulary small and closed (`"A"`, `"B"`, optionally `"C"` for a referee) is what makes this work.
+* **OCR text and its polygon are adjacent** — `<ocr>28<loc_...>` and `<ocr>45<loc_...>`. That gluing (rule 5 of the grammar) is what binds the recognised text to a region of the image and suppresses free-floating jersey-number hallucinations.
 * **The indentation and newlines above are for human readability only.** The actual training target is a single contiguous string with no whitespace inserted.
-* **A player whose number is occluded** would simply have no `ocr` field at all — never an empty list, never an empty `<ocr></ocr>` block. Rule 5.
+* **A player whose number is occluded** would simply have no `ocr` field at all — never an empty list, never an empty `<ocr></ocr>` block. Same for `<team>` when the team can't be determined. Rule 6.
 * **`<gdesc>` is last**, immediately before `</s>`. Pick one slot and stay with it across the entire dataset.
 
 ## Three routes to a dataset

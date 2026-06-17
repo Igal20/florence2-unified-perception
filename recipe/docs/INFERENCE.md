@@ -25,6 +25,7 @@ The output is a single string with the grammar described in [`DATA_PREPARATION.m
 3. **Player blocks.** Match `<player_(\d+)>(.*?)</player_\1>` (with `DOTALL`) to extract each player's index and inner body. The back-reference `\1` ensures `<player_2>` only matches `</player_2>`.
 4. **Inside each player block:**
    * Match `<bbox><loc_(\d+)><loc_(\d+)><loc_(\d+)><loc_(\d+)></bbox>` for the bounding box.
+   * Match `<team>([^<]+)` for the team label (optional — absent for players whose affiliation is unknown). The captured value is one of the closed-vocabulary labels (e.g. `"A"`, `"B"`); anything outside the vocabulary should be dropped, not coerced.
    * Match `<ocr>([^<]+)<loc_(\d+)><loc_(\d+)>...<loc_(\d+)>` (8 `<loc_*>` total) for each OCR item.
 
 After matching, denormalise every `<loc_*>` bin from `[0, 999]` to pixel space using the original image dimensions. The final structured dict has shape:
@@ -34,7 +35,7 @@ After matching, denormalise every `<loc_*>` bin from `[0, 999]` to pixel space u
 | `scene_type` | string |
 | `num_athletes` | int |
 | `general_description` | string |
-| `players` | list of `{index, bbox: [x1, y1, x2, y2], ocr: [{text, polygon: [[x, y]x4]}]}` |
+| `players` | list of `{index, bbox: [x1, y1, x2, y2], team: str \| None, ocr: [{text, polygon: [[x, y]x4]}]}` |
 
 Be forgiving: even a Stage 1 checkpoint will sometimes produce a partial output (missing `</s>`, missing `<gdesc>`, …). Return whatever parses cleanly; surface the rest as `None`.
 

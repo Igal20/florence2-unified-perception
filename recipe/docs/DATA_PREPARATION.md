@@ -53,7 +53,7 @@ Florence-2 ships 1000 special location tokens `<loc_0>` … `<loc_999>` that dis
 
 The annotation contract above is small, but actually producing thousands of annotations is the hard part. Pick whichever fits your budget:
 
-1. **Hand-label everything** (small, very high quality). Use [CVAT](https://www.cvat.ai/) for boxes + polygons, a spreadsheet for `scene_type` + `general_description`. Export, then have your LLM write a 30-line converter into the contract above.
+1. **Hand-label everything** (small, very high quality). Use your annotation tool of choice for boxes + polygons, a spreadsheet for `scene_type` + `general_description`. Export, then have your LLM write a 30-line converter into the contract above.
 2. **Semi-automated teacher pipeline** (recommended for 5–20K samples). One off-the-shelf model per sub-task gives you a noisy first pass; humans review only the disagreements:
    * Detector (YOLO, Grounded-SAM) → candidate bounding boxes
    * OCR (PaddleOCR, EasyOCR, or *cropped* Florence-2 on each box) → jersey-number text + polygon

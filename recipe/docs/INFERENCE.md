@@ -1,0 +1,84 @@
+# Inference — the recipe
+
+Inference is the easy part. A fine-tuned Stage 2 checkpoint is a plain Hugging Face Florence-2 model — the LoRA adapters were merged into the base linear weights at save time, so you load it with the standard `AutoModelForCausalLM.from_pretrained(<checkpoint>, trust_remote_code=True)` pattern and call `.generate(...)` on it. No LoRA library, no special wrappers, no extra dependencies beyond `transformers` + `pillow`.
+
+This doc describes what the inference pipeline does, not how to install or download anything. Pre-trained weights are **not** released as part of this recipe — you train your own using the [`TWO_STAGE_TRAINING.md`](TWO_STAGE_TRAINING.md) instructions.
+
+## The end-to-end flow for one image
+
+1. **Load** the fine-tuned checkpoint with `AutoModelForCausalLM` and `AutoProcessor` (both with `trust_remote_code=True`).
+2. **Preprocess** the image: open with PIL, convert to RGB. Optionally normalise EXIF orientation. Resize to the same `TARGET_RESOLUTION` you trained on (the talk used `768 × 768`).
+3. **Tokenise the task prompt** (`<MULTIMODAL_VISUAL_CAPTION>`) and run it through the processor together with the image to get `input_ids` + `pixel_values`.
+4. **Generate** with beam search (`num_beams = 3`, `max_new_tokens = 1024`, `do_sample = False`). Greedy + beam is non-negotiable for structured output — never enable sampling.
+5. **Decode** the generated ids with `processor.batch_decode(..., skip_special_tokens=False)`. `skip_special_tokens=False` matters: you need the structural tokens in the output string to parse it.
+6. **Parse** the output string into a structured dict (see below).
+7. **Denormalise** the `<loc_*>` bins back to pixel coordinates using the original image size (`x_pixel = (loc_bin / 1000) * image_width`, same for y with height).
+
+That's the entire inference loop. ~60 lines including the parser and the optional debug visualisation.
+
+## The parser — inverse of the grammar
+
+The output is a single string with the grammar described in [`DATA_PREPARATION.md`](DATA_PREPARATION.md). Parsing it requires four regex patterns and one loop:
+
+1. **Header.** Match `<stype>([^<]+)` and `<nath>(\d+)` to extract the scene class and the athlete count.
+2. **General description.** Match `<gdesc>([^<]*)` for the free-form caption (greedy until `</s>`).
+3. **Player blocks.** Match `<player_(\d+)>(.*?)</player_\1>` (with `DOTALL`) to extract each player's index and inner body. The back-reference `\1` ensures `<player_2>` only matches `</player_2>`.
+4. **Inside each player block:**
+   * Match `<bbox><loc_(\d+)><loc_(\d+)><loc_(\d+)><loc_(\d+)></bbox>` for the bounding box.
+   * Match `<ocr>([^<]+)<loc_(\d+)><loc_(\d+)>...<loc_(\d+)>` (8 `<loc_*>` total) for each OCR item.
+
+After matching, denormalise every `<loc_*>` bin from `[0, 999]` to pixel space using the original image dimensions. The final structured dict has shape:
+
+| Key | Type |
+|---|---|
+| `scene_type` | string |
+| `num_athletes` | int |
+| `general_description` | string |
+| `players` | list of `{index, bbox: [x1, y1, x2, y2], ocr: [{text, polygon: [[x, y]x4]}]}` |
+
+Be forgiving: even a Stage 1 checkpoint will sometimes produce a partial output (missing `</s>`, missing `<gdesc>`, …). Return whatever parses cleanly; surface the rest as `None`.
+
+## Generation knobs that matter
+
+| Knob | Suggested | When to change |
+|---|---|---|
+| `num_beams` | `3` | Drop to `1` for ~3× speed at a small quality cost. Higher (5) buys very little. |
+| `max_new_tokens` | `1024` | Lower if your scenes have ≤ 4 entities (saves time). Raise if outputs are getting truncated mid-token. |
+| `do_sample` | `False` | Always greedy + beam for structured output. Never enable sampling. |
+| `length_penalty` | `1.0` | Defaults are fine. Don't tune this. |
+
+## Performance expectations
+
+For Florence-2-large + Stage 2 LoRA-merged checkpoint, 768 × 768 input, `num_beams = 3`, `max_new_tokens = 1024`:
+
+| Hardware | Latency per image | Throughput |
+|---|---|---|
+| RTX 3090 / A10 (24 GB, fp16) | ~0.4 s | ~150 images/min |
+| T4 (16 GB, fp16) | ~0.9 s | ~65 images/min |
+| CPU (16 cores) | ~8 s | ~7 images/min |
+
+For batch inference, pass a list of images to the processor and call `generate` once per batch — both the processor and the generator natively batch.
+
+## Debug visualisation
+
+Once parsed, render boxes + OCR polygons + jersey-number text on top of the original image. Use one colour per player index and label each box with `#N` so OCR mismatches are easy to spot. This single picture is the most useful artefact in the entire pipeline — keep it on for every run during development.
+
+## Common pitfalls
+
+* **Tokeniser without custom tokens.** If you load a checkpoint whose `tokenizer.json` doesn't include the custom tokens you trained with, decoding produces gibberish like `<s>< loc_0> < loc_0>`. The cause is almost always saving the model but forgetting to save the processor at training time. Save them together, always.
+* **Output truncated mid-bbox.** Raise `max_new_tokens`. Florence-2 happily generates 1500+ tokens on dense scenes.
+* **All boxes collapse to the corner.** Almost always a training-time serialiser bug — the `image_size` field was wrong, so every coordinate was quantised to `<loc_0>`. Re-run the data-prep smoke test.
+* **OCR text is always empty.** Stage 1 may have early-stopped on grammar before the OCR span was learned. Lower the schema-compliance threshold to 0.85 and retrain, or skip the early-stop entirely and run the full epoch budget.
+* **Sampling enabled by accident.** `do_sample=True` produces structurally invalid outputs ~30% of the time. Always greedy + beam.
+* **Skipping special tokens during decode.** `processor.batch_decode(ids)` (default `skip_special_tokens=True`) strips out the structural tokens you need to parse. Always pass `skip_special_tokens=False`.
+
+## What to ship to production
+
+The merged Stage 2 checkpoint is a single Hugging Face folder. To productionise:
+
+* Wrap the load + generate + parse + denormalise pipeline in a class with a `predict(image) -> dict` method.
+* Cache the model on a single GPU; don't reload per request.
+* Add request batching at the HTTP layer (the model batches natively in `generate`).
+* Profile end-to-end latency — usually 70% of wall-clock is `generate`, 20% is image preprocessing, 10% is the parse + render. Optimise in that order.
+
+That's the entire production story. The recipe deliberately stops here — anything more is plumbing, not perception.

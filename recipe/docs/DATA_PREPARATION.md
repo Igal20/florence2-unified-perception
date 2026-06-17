@@ -1,0 +1,86 @@
+# Data preparation
+
+The entire pipeline is anchored by one decision: **what string does the decoder learn to emit for one image?** Once that string is settled, the rest of the recipe falls into place. Get this wrong and Stage 1 will never reach high schema compliance no matter what hyper-parameters you sweep.
+
+## The annotation contract
+
+One image, one annotation file with the same stem, containing these fields (names are suggestions — yours can differ as long as they map cleanly to the grammar below):
+
+| Field | Required | What it is |
+|---|---|---|
+| `image_size` | yes | `[width_px, height_px]` — needed to normalise every coordinate. |
+| `scene_type` | yes | One of a small closed vocabulary (we used 9 sport-context classes). Anything outside the vocabulary collapses to `"Other"`. |
+| `general_description` | recommended | One free-form English sentence about the scene. If empty, no `<gdesc>` block is emitted. |
+| `players` (entities) | yes | A list of entity dicts. Each entity has a bbox and optionally an OCR list. |
+| `players[i].bbox` | yes per entity | `[x1, y1, x2, y2]` in pixel space, top-left + bottom-right. |
+| `players[i].ocr` | optional per entity | List of `{text, polygon}` items. Polygon = 4 `[x, y]` points in pixel space. |
+
+A held-out benchmark set should live outside this dataset (or be flagged by a hash list and filtered out of train/val) so you can evaluate without leakage.
+
+## The grammar your serialiser must produce
+
+For one image, the serialised string must look exactly like this — same token order, same closing tags, no extra whitespace inside tags:
+
+```
+<MULTIMODAL_VISUAL_CAPTION><stype>{SCENE_TYPE}<nath>{N}
+  <player_1><bbox><loc_*><loc_*><loc_*><loc_*></bbox>
+    <ocr>{TEXT}<loc_*><loc_*><loc_*><loc_*><loc_*><loc_*><loc_*><loc_*>
+    ... (more ocr items per player) ...
+  </player_1>
+  <player_2>...</player_2>
+  ...
+<gdesc>{FREE TEXT}</s>
+```
+
+Rules the LLM you task with building the serialiser must respect:
+
+1. **Header first.** `<stype>{class}` then `<nath>{count}` always come before any player block.
+2. **One block per entity, indexed.** Use `<player_1>...</player_1>`, `<player_2>...</player_2>`, etc. Cap at 8 (or whatever `MAX_PLAYER_INDEX` you choose), drop the extras.
+3. **Bbox immediately inside a player block.** `<bbox>` then exactly 4 `<loc_*>` then `</bbox>`.
+4. **OCR is text + polygon, glued together.** Always `<ocr>` then the literal text (no spaces inside the token), then exactly 8 `<loc_*>` (the 4 polygon corners as x,y pairs). The polygon **must** come immediately after the text — that gluing is what suppresses hallucinated jersey numbers.
+5. **Optional fields are skipped, not emitted as empty.** No `<ocr>` block at all for players with no readable text; no `<gdesc>` block at all for images without a caption.
+6. **`<gdesc>` is last,** before `</s>`. (You can put it first instead, but pick one ordering and stay with it across the entire dataset — Stage 1 will only converge if the order is consistent.)
+
+## Quantising coordinates
+
+Florence-2 ships 1000 special location tokens `<loc_0>` … `<loc_999>` that discretise normalised `[0, 1]` coordinates. **Reuse them — do not add new location tokens.** Each pixel coordinate becomes one `<loc_*>` via this formula:
+
+> `bin = floor(min(1.0, max(0.0, value / dim)) * 1000)` → emit `<loc_{bin}>`
+
+`dim` is `width` for x-coordinates, `height` for y-coordinates. Boxes use 4 such bins, polygons use 8 (4 (x, y) pairs). The Medium post explains why creating new `<loc_*>` tokens is strictly worse than reusing the pretrained ones.
+
+## Three routes to a dataset
+
+The annotation contract above is small, but actually producing thousands of annotations is the hard part. Pick whichever fits your budget:
+
+1. **Hand-label everything** (small, very high quality). Use [CVAT](https://www.cvat.ai/) for boxes + polygons, a spreadsheet for `scene_type` + `general_description`. Export, then have your LLM write a 30-line converter into the contract above.
+2. **Semi-automated teacher pipeline** (recommended for 5–20K samples). One off-the-shelf model per sub-task gives you a noisy first pass; humans review only the disagreements:
+   * Detector (YOLO, Grounded-SAM) → candidate bounding boxes
+   * OCR (PaddleOCR, EasyOCR, or *cropped* Florence-2 on each box) → jersey-number text + polygon
+   * VLM (Gemini, GPT-4o, Florence-2 cascade) → scene type + free-form description
+   * Human-in-the-loop → review only the low-confidence cases
+   * Serialise into the contract above
+3. **Existing public datasets** (cheapest). Most public sports datasets cover only one sub-task; synthesise the rest with off-the-shelf models. Quality is bounded by the synthesised fields.
+
+A single GPU and a long weekend gets you 5–20K annotations via route 2, which is enough.
+
+## Before you train: smoke-test the serialiser
+
+This is the single most useful thing you can do before launching any training run. For 5–10 randomly-sampled annotations, run your serialiser and **read the output string with your eyes**. If you can't parse it visually, the model won't learn it either. Look for:
+
+* Consistent ordering (`<stype>` always before `<nath>`, `<gdesc>` always in the same slot).
+* No stray spaces inside tag names.
+* Every `<player_N>` has a matching `</player_N>`.
+* Player indices are contiguous from 1, not random.
+* OCR polygon has exactly 8 `<loc_*>` tokens, not 6 or 10.
+
+This is the entire QA gate for the data-prep stage.
+
+## Common pitfalls
+
+* **Polygon point count ≠ 4.** Many OCR tools emit polygons with 6+ vertices. Resample to 4 corners (or the bounding rect) before serialising.
+* **Pixel vs normalised coords.** All annotation coordinates are pixels. Normalisation happens inside the serialiser using `image_size`.
+* **Image stem mismatch.** `0001.jpg` ↔ `0001.json`. Any prefix/suffix mismatch silently drops the sample.
+* **`scene_type` typos.** Anything outside the closed vocabulary becomes `"Other"`. The smoke-test above catches this.
+* **Mixing orderings.** If half the dataset has `<gdesc>` first and the other half has it last, Stage 1 plateaus around 70-80% compliance and you'll think you have a model problem when you have a data problem.
+* **Too many entities.** With `MAX_PLAYER_INDEX = 8`, a 12-player annotation silently loses the last 4. Either raise the cap (and add tokens for it — see `TOKENS.md`) or accept the loss.

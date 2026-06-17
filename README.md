@@ -13,6 +13,47 @@ The two halves are complementary, not redundant. The article code shows you the 
 
 ---
 
+## What you can build with this
+
+**Multi-task perception**, defined precisely for this recipe: a single Florence-2 forward pass that — for one input image — emits *both* a structured token sequence (detections, OCR text, per-entity attributes, scene class) *and* a free-form natural-language description, all natively associated to each other. No second model. No post-hoc joining of a separate detector + OCR engine + captioner. One model, one pass, four heads' worth of output already glued together.
+
+The recipe is sport-flavoured because that's the talk we gave. The methodology is generic. Three quick examples of what "unified perception" looks like in three completely different verticals — same recipe pattern, same one-forward-pass guarantee, only the token vocabulary and the annotation source change:
+
+<table>
+<tr>
+<td width="33%" align="center"><b>Retail shelf inspection</b></td>
+<td width="33%" align="center"><b>Construction PPE compliance</b></td>
+<td width="33%" align="center"><b>Wildlife conservation aerial imagery</b></td>
+</tr>
+<tr>
+<td><img src="recipe/docs/images/use_case_retail.jpg" alt="Retail shelf inspection: per-product bounding boxes with price OCR and in-stock state, plus an aisle classification banner at the top"></td>
+<td><img src="recipe/docs/images/use_case_construction.jpg" alt="Construction site PPE compliance: per-worker bounding boxes color-coded by compliance, with helmet/vest/gloves checks per worker and a worksite classification banner"></td>
+<td><img src="recipe/docs/images/use_case_wildlife.jpg" alt="Wildlife conservation aerial imagery: per-animal bounding boxes color-coded by species, with species and behavior labels, a habitat classification banner at the top, and a free-text scene caption at the bottom"></td>
+</tr>
+<tr>
+<td>Per-product bbox + price OCR + in-/out-of-stock per product + aisle classification.<br><br><em>One forward pass per shelf photo.</em></td>
+<td>Per-worker bbox + helmet / vest / gloves attributes per worker + worksite classification.<br><br><em>One forward pass per safety-audit frame.</em></td>
+<td>Per-animal bbox + species + behavior + habitat classification + free-text scene description.<br><br><em>One forward pass per drone frame.</em></td>
+</tr>
+</table>
+
+> Illustrative renders, not real model outputs. The retail adaptation is worked out step-by-step in [`recipe/docs/ADAPT_TO_YOUR_DOMAIN.md`](recipe/docs/ADAPT_TO_YOUR_DOMAIN.md); the construction and wildlife versions follow the same five-step port (rename tokens → redesign the grammar → redefine the scene-class vocabulary → rewrite the schema-compliance regexes → recompute the weighted-loss id-sets).
+
+---
+
+## The end-to-end workflow
+
+The recipe is deliberately built so you spend your time on the things that actually need human judgement (annotation contract, schema design, evaluation criteria) and outsource the boilerplate to a coding assistant:
+
+1. **Build the dataset.** Decide what string you want the decoder to emit for one image (the annotation contract). Write a serialiser that turns your JSON labels into that exact string. Then collect annotations using whatever pipeline fits your budget — hand-labelling, a semi-automated teacher cascade, or existing public datasets stitched together with off-the-shelf models. → [`recipe/docs/DATA_PREPARATION.md`](recipe/docs/DATA_PREPARATION.md)
+2. **Provide the spec to your LLM.** Hand the four recipe docs (`TOKENS.md`, `DATA_PREPARATION.md`, `TWO_STAGE_TRAINING.md`, `INFERENCE.md`) plus the worked example to your favourite coding assistant (Cursor, Claude Code, Copilot Workspace, …). The recipe is written so an LLM can scaffold a runnable training script *and* a runnable inference script from the prose alone — that's the entire reason this is a recipe release and not a code release.
+3. **Train (two stages).** Stage 1 teaches the grammar (vocabulary alignment, vision encoder frozen, uniform CE). Stage 2 teaches grounding (decoder LoRA on attention projections, hierarchical token-weighted loss). The hard-won numbers — the freezing policy down to the 4 tied parameter pointers, the 8 schema-compliance regex checks, the 19-token content boost, the OCR / HIGH / LOW weight bands, the six knobs worth sweeping — are all in [`recipe/docs/TWO_STAGE_TRAINING.md`](recipe/docs/TWO_STAGE_TRAINING.md).
+4. **Inference and parse.** Load the resulting checkpoint with `trust_remote_code=True`, run `generate(..., skip_special_tokens=False)`, parse the token sequence back into the structured fields you started with. → [`recipe/docs/INFERENCE.md`](recipe/docs/INFERENCE.md)
+
+You only ever write one piece of bespoke code: the JSON-to-token serialiser in step 1. Everything else the recipe + your LLM can scaffold.
+
+---
+
 ## `medium_post_code/` — the Medium article companion
 
 The original contents of this repo, kept exactly as they were when the article was published.

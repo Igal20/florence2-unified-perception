@@ -11,8 +11,6 @@ The talk's promise was a recipe you can hand to your favourite LLM. This is that
 📖 **Companion blog post — the token-vocabulary surgery in detail:**
 [Expanding Florence-2's Vocabulary — An Advanced Guide to Adding Custom Tokens During Fine-Tuning](https://medium.com/@ygal20/expanding-florence-2s-vocabulary-an-advanced-guide-to-adding-custom-tokens-during-fine-tuning-138fab660b64)
 
-🎤 **Talk slides + speaker notes:** see `IMVC_2026_talk_speaker_notes_v2_restructured.md` in the parent folder.
-
 ---
 
 ## How to use this recipe

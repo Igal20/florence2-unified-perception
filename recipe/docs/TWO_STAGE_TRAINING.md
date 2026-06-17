@@ -27,15 +27,29 @@ If you have a strong reason to drift the visual representation — radically dif
 
 ### Freezing policy
 
+The notation "**frozen**" below means `param.requires_grad = False`. Florence-2 **ties four parameter pointers to one weight matrix** — `model.shared`, `encoder.embed_tokens`, `decoder.embed_tokens`, and `lm_head` all share the same underlying tensor — so the table treats each pointer as its own row to make the tie explicit.
+
 | Component | Stage 1 |
 |---|---|
-| DaViT vision encoder | **frozen** |
-| BART encoder transformer layers | **frozen** |
-| BART encoder layernorms | **frozen** |
-| Shared embedding (tied across encoder / decoder / lm_head) | **trainable** — so new token rows learn good embeddings |
-| BART decoder (all layers) | **trainable** (full fine-tune) |
+| DaViT vision encoder (`model.vision_tower`) | **frozen** |
+| BART encoder transformer layers (`encoder.layers`) | **frozen** |
+| BART encoder layernorms (`layernorm_embedding`, final `layer_norm`) | **frozen** |
+| BART encoder `embed_tokens` | **trainable** (tied) |
+| Shared embedding (`model.language_model.model.shared`) | **trainable** — the rows for the new custom tokens need to learn |
+| BART decoder `embed_tokens` | **trainable** (tied) |
+| BART decoder layers (self-attn, cross-attn, FFN, layernorms) | **trainable** (full fine-tune) |
+| `lm_head` | **trainable** (tied) |
 
-The shared embedding is the subtle one. Florence-2 ties four pointers to one weight matrix; we want the new token rows in that matrix to learn, but we want to freeze the encoder *layers* that sit downstream. Freezing the encoder layers without touching the embedding lookup is the right pattern.
+**How freezing actually works in Stage 1.** Because the shared embedding is trainable and `lm_head` shares its weight tensor by tying, training one trains all four pointers. You do not have to chase pointers individually — you only need to freeze the things that are *not* tied to the shared matrix:
+
+```python
+freeze_vision_encoder(model)         # vision_tower.parameters().requires_grad = False
+freeze_bart_encoder_layers(model)    # encoder.layers + layernorm_embedding + final layer_norm
+                                     #   -- explicitly does NOT touch encoder.embed_tokens
+# Decoder layers, shared embedding, decoder embed_tokens, lm_head: default requires_grad = True
+```
+
+The two helpers above are 3-5 lines each — implement them yourself (or have your LLM scaffold them from the freezing-policy table). The critical detail is that `freeze_bart_encoder_layers` walks `encoder.layers` and the two layernorms but **leaves `encoder.embed_tokens` untouched**, because that parameter is tied to `model.shared` and freezing it would also freeze the lm_head and the decoder's `embed_tokens` — defeating the whole point of Stage 1.
 
 ### Loss
 
@@ -65,16 +79,25 @@ Schema-compliance metric climbing past 95% within 1-2 epochs. Validation loss co
 
 ### Freezing policy
 
+Same notation as Stage 1 — "**frozen**" means `param.requires_grad = False`. Stage 2 freezes *everything* in the base model and only the freshly-injected LoRA `lora_A` / `lora_B` parameters end up trainable.
+
 | Component | Stage 2 |
 |---|---|
-| DaViT vision encoder | **frozen** |
-| BART encoder | **frozen** |
-| Embeddings (shared + lm_head) | **frozen** — locks the Stage 1 vocabulary alignment |
-| BART decoder base weights | **frozen** |
+| DaViT vision encoder (`model.vision_tower`) | **frozen** |
+| BART encoder (layers + layernorms + `embed_tokens`) | **frozen** |
+| Shared embedding (`model.language_model.model.shared`) | **frozen** — locks the Stage 1 vocabulary alignment |
+| BART decoder `embed_tokens` | **frozen** (tied) |
+| BART decoder `embed_positions` | **frozen** |
+| `lm_head` | **frozen** (tied) |
+| BART decoder base weights (self-attn, cross-attn, FFN, layernorms) | **frozen** |
 | LoRA on decoder self-attention (q_proj, v_proj, out_proj) | **trainable** |
 | LoRA on decoder cross-attention (q_proj, v_proj, out_proj) | **trainable** |
 
 Only ~0.3% of all parameters are trainable. Forward / backward is correspondingly cheap.
+
+**How freezing actually works in Stage 2.** You do not need a separate `freeze_embeddings` helper for Stage 2 — the LoRA injection block (shown below) starts with `for p in model.parameters(): p.requires_grad = False`, which freezes everything atomically: the entire vision encoder, the BART encoder, **all 4 tied pointers** (shared, encoder.embed_tokens, decoder.embed_tokens, lm_head), `embed_positions`, the decoder layers — every parameter in the model. Only the newly-created `LoRALinear.lora_A` and `LoRALinear.lora_B` end up `requires_grad=True` after injection, because they were just instantiated and inherit the PyTorch default.
+
+If you prefer defensive explicitness, you can still call a separate `freeze_embeddings(model)` helper after the LoRA injection — it'll be a no-op because the tied pointers are already frozen, but it makes intent visible to anyone reading the training script.
 
 ### Why decoder cross-attention specifically
 

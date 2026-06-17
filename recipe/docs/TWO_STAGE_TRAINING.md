@@ -326,3 +326,27 @@ If Stage 2's loss explodes after warmup, lower the OCR token weight from 12 to 8
 | Stage 2 plateaued / regressed | Fall back to the Stage-1 best checkpoint, lower LR or OCR token weight, retry Stage 2. |
 | Token list changed | **Re-run Stage 1 from base Florence-2.** Adding or removing tokens after Stage 1 corrupts the new embedding rows. |
 | Dataset grew | Just re-run both stages — the curriculum is fast enough that re-training from scratch is cleaner than incrementally fine-tuning. |
+
+---
+
+## Knobs worth sweeping when the baseline isn't quite enough
+
+The defaults above produce a working model. Once it's running and you want to push further (or you've ported the recipe to a new domain and need to re-tune), six knobs cover roughly 80% of the practical sweep budget. The remaining knobs — warmup ratio, weight decay, gradient clip, LoRA dropout, LoRA alpha — almost never produce the biggest wins; touch them only after the six below have been ruled out.
+
+| # | Knob | Default | Range to try | Direction | When to reach for it |
+|---|---|---|---|---|---|
+| 1 | Stage 2 learning rate | `1e-4` | `5e-5` … `3e-4` | Higher = faster LoRA fitting, more risk of forgetting Stage 1 grammar. Lower = safer, slower. | Stage 2 val loss plateaus high → try `2-3e-4`. Stage 2 schema-compliance drops mid-training (forgetting) → try `5e-5`. |
+| 2 | LoRA rank (Stage 2) | `16` | `{4, 8, 16, 32}` | Higher = more decoder capacity per attention projection, slower step, mild overfitting risk on small datasets. | Dataset < 3K samples → drop to `8` (or even `4`). Dataset 20K+ and Stage 2 underfits (val loss flat from epoch 2) → try `32`. |
+| 3 | OCR token weight | `12.0` | `8.0` … `15.0` | Higher = OCR text gets more loss attention; can crowd out grammar tokens. Lower = OCR accuracy drops, structure stays cleaner. | Stage 2 loss explodes after warmup → drop to `8`. Jersey-number CER stuck in double digits while schema compliance is already > 0.95 → push to `15`. |
+| 4 | Positional boost rate | `0.4` | `0.15` … `0.4` | Higher = later-indexed players (player_5…player_8) get aggressively boosted; loss can be dominated by one mis-predicted late player. | ≤ 4 entities per image on average → drop to `0.15-0.2`. The boost ramps up quickly with player index and a `0.4` rate on a 2-entity dataset just amplifies noise. |
+| 5 | Schema-compliance threshold (Stage 1 early-stop) | `0.95` | `0.85` … `0.98` | Higher = stricter Stage 1 exit; more epochs spent on the last few percent of compliant generations. Lower = exit sooner, risk shipping a partially-broken grammar into Stage 2. | Stage 1 never reaches `0.95` (plateaus at `0.88-0.92`) on noisy data → drop to `0.85` and let Stage 2 weighted-loss fix the rest. Stage 2 has trouble converging because the input checkpoint emits the occasional malformed sequence → raise to `0.98`. |
+| 6 | Weighted-sampling strategy | `ocr_boost` | `{inverse_freq, linear, difficulty_based, ocr_weighted, ocr_boost}` | Each strategy reshapes the training distribution. `ocr_boost` aggressively over-samples OCR-rich images; `inverse_freq` over-samples rare player counts (1-player and 7+ player); `difficulty_based` focuses the 4-7 player middle range. | OCR CER is the bottleneck → `ocr_boost`. Few-player and many-player scenes both look bad while the middle is fine → `inverse_freq`. The 4-7 player middle is the weakest → `difficulty_based`. Headline metrics are balanced and you just want a sanity baseline → `linear`. |
+
+**How to sweep without burning compute.** Sweep one knob at a time (never a grid — multiplicative cost, additive insight), keep all others at their defaults, and short-train each variant for the smallest number of steps that gets Stage 2 past warmup (~ 30% of the full epoch budget). A bad variant is identifiable that early; full runs are only needed for the 1-2 finalists.
+
+**Which validation metric to compare on.** Pick the one that matches your bottleneck *before* you start the sweep — they don't always agree:
+
+* Schema compliance plateau → use the schema-compliance rate from [§ Early stop](#early-stop).
+* OCR / jersey-number accuracy plateau → use CER and per-digit accuracy from [§ Other validation metrics](#other-validation-metrics-every-eval_steps--100-steps).
+* Scene classification confusion → use the 9×9 scene-type confusion matrix.
+* Generic "the model just feels worse" → token-weighted val loss, with the caveat from § Other validation metrics that it's not comparable across sweeps that change the loss weights themselves (knob 3 above).

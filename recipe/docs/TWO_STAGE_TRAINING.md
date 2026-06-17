@@ -169,7 +169,22 @@ loss = (per_token_ce * weights.flatten()).sum() / weights.flatten().sum().clamp(
 
 Two boosts layered on top:
 
-* **Content boost.** Tokens immediately following an `<ocr>` or `<stype>` trigger inherit the trigger's weight for the next ~19 tokens. This is how the actual jersey-number text and the scene-class string get weighted (they aren't structural tokens themselves, but they're the content that matters).
+* **Content boost — `CONTENT_BOOST_LENGTH = 19`, hard cutoff, with early span-breaker termination.** Two triggers open a boosted span, but they apply different weights inside it:
+
+  | Trigger | Weight inside the boosted span | Typical span contents |
+  |---|---|---|
+  | `<ocr>` | `OCR_WEIGHT` (e.g. `12.0`) | The literal jersey-number / OCR text (1-3 BPE pieces) immediately followed by 8 polygon `<loc_*>` tokens. ~9-11 tokens total in the common case. |
+  | `<stype>` | `HIGH_WEIGHT` (e.g. `5.0`) | The scene-class string after `<stype>` (1-3 BPE pieces, e.g. `In-Game`, `Interview`). |
+
+  **Where does 19 come from?** A typical OCR span is ≤ 11 tokens (text + 8 locs); 19 gives ~2× safety margin for unusually long content — a multi-word ad-board, a 4-digit serial number that BPE splits into 4 pieces, a multi-word scene type. Pick a different value if your domain has longer OCR text (rule of thumb: 1.5-2× the longest OCR span you want to weight aggressively). Smaller is safer (the boost stops sooner if it ever over-runs into structural tokens); larger only matters when your content tokens are unusually long.
+
+  **Span breakers** that terminate the boost before the 19-token cap is hit, on first occurrence:
+  - any `<player_N>` or `</player_N>` (the per-player block boundary)
+  - `<gdesc>` (the start of the free-form description)
+  - for the `<ocr>` trigger only: another `<ocr>` — a new OCR span starts with its own fresh 19-token budget
+
+  **The boost uses `max(existing_weight, boost_weight)`, not plain assignment.** A `<loc_*>` token inside an OCR polygon already has `HIGH_WEIGHT` (5.0) from the class lookup; the OCR boost raises it to `OCR_WEIGHT` (12.0). A `<loc_*>` inside a `<bbox>` (no active boost) stays at `HIGH_WEIGHT`. Using plain assignment instead of `max()` would silently *lower* the weight of structural tokens that happen to fall inside a non-OCR boosted span — a bug invisible in every training-loss curve.
+
 * **Positional boost.** Tokens inside `<player_N>` get scaled by `1 + (N - 1) * rate`. With `rate = 0.4`: player 1 = 1.0×, player 5 = 2.6×, player 8 = 3.8×. Later players are harder (cross-attention degrades by position in the sequence); the boost compensates.
 
 ### The LoRA-injection pattern

@@ -59,7 +59,7 @@ To make the contract concrete, here is one image, its annotation file, and the e
 
 **`example_hockey.json`** — the annotation in the contract format above:
 
-```json
+```jsonc
 {
   "image_size": [1024, 682],
   "scene_type": "In-Game",
@@ -70,6 +70,8 @@ To make the contract concrete, here is one image, its annotation file, and the e
       "team": "A",
       "ocr": [
         { "text": "28", "polygon": [[275, 150], [360, 150], [360, 215], [275, 215]] }
+        // ... additional <ocr> items per player if more readable text is visible
+        //     (jersey logo text, captain "C", sleeve numbers, ad boards behind, ...)
       ]
     },
     {
@@ -77,11 +79,14 @@ To make the contract concrete, here is one image, its annotation file, and the e
       "team": "B",
       "ocr": [
         { "text": "45", "polygon": [[685, 265], [750, 265], [750, 320], [685, 320]] }
+        // ... additional <ocr> items per player if more readable text is visible
       ]
     }
   ]
 }
 ```
+
+> **Note on the `// ...` lines** — those are illustrative comments showing where additional OCR items would go in a real annotation; they are **not** part of the contract. A strict JSON file has no comments. Each `ocr` array can hold **0..N** items per player; the worked example shows one each because that's all the imagery cleanly contains.
 
 **Serialised token string** — exactly what the decoder must learn to emit for this image (the `<loc_*>` indices are computed from the pixel coordinates above using the quantisation formula in the previous section):
 
@@ -89,18 +94,23 @@ To make the contract concrete, here is one image, its annotation file, and the e
 <MULTIMODAL_VISUAL_CAPTION><stype>In-Game<nath>2
   <player_1><bbox><loc_214><loc_43><loc_546><loc_982></bbox><team>A
     <ocr>28<loc_268><loc_219><loc_351><loc_219><loc_351><loc_315><loc_268><loc_315>
+    ... (additional <ocr> items per player would continue here, one per readable region) ...
   </player_1>
   <player_2><bbox><loc_498><loc_131><loc_800><loc_967></bbox><team>B
     <ocr>45<loc_668><loc_388><loc_732><loc_388><loc_732><loc_469><loc_668><loc_469>
+    ... (additional <ocr> items per player would continue here) ...
   </player_2>
 <gdesc>Two hockey players battle for the puck along the boards: a Forest Trykers forward wearing #28 attempts to shield it from the opposing Iron Falcons captain #45.</s>
 ```
+
+> **Note on the `... (additional <ocr> items …) ...` lines** — those are illustrative placeholders, not literal tokens the model should emit. They mirror the `... (more ocr items per player) ...` line from the grammar template at the top of this doc, and exist only to make clear that the per-player `<ocr>` block is variable-length. In the actual training target, only the concrete `<ocr>…` lines are present, joined together with no whitespace.
 
 Things worth noticing in the string above:
 
 * **`<nath>2`** — the explicit entity count must equal the number of `<player_N>` blocks. The model checks this against itself, and a mismatch is a strong "this generation went off the rails" signal at inference time.
 * **Team affiliation is per-player and abstract** — `<team>A` for the Forest Trykers, `<team>B` for the Iron Falcons. The model never sees the real team names; it learns the *relative* concept "all players sharing the same jersey design are the same team", which generalises across leagues, sports, and unseen uniforms. Keeping the value vocabulary small and closed (`"A"`, `"B"`, optionally `"C"` for a referee) is what makes this work.
 * **OCR text and its polygon are adjacent** — `<ocr>28<loc_...>` and `<ocr>45<loc_...>`. That gluing (rule 5 of the grammar) is what binds the recognised text to a region of the image and suppresses free-floating jersey-number hallucinations.
+* **OCR is a list per player, not a single value.** Each player can have 0..N `<ocr>…` blocks back-to-back inside their `<player_N>` block — one per readable region. The example above shows one each because that's all the image cleanly contains; a real annotation of a player whose jersey shows `#28` on the back, `FOREST TRYKERS` on the chest, and a captain's `C` on the shoulder would have three `<ocr>…` blocks for that one player. The `// ...` and `... (additional <ocr> items …) ...` markers in the JSON and token string are illustrative; they are not tokens the model emits.
 * **The indentation and newlines above are for human readability only.** The actual training target is a single contiguous string with no whitespace inserted.
 * **A player whose number is occluded** would simply have no `ocr` field at all — never an empty list, never an empty `<ocr></ocr>` block. Same for `<team>` when the team can't be determined. Rule 6.
 * **`<gdesc>` is last**, immediately before `</s>`. Pick one slot and stay with it across the entire dataset.

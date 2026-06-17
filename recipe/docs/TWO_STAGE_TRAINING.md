@@ -23,6 +23,24 @@ If you have a strong reason to drift the visual representation — radically dif
 
 ---
 
+## Visual orientation — what's frozen, what's trained
+
+Before the per-stage details, here is the whole story in one diagram. Both columns show the same Florence-2 architecture top-to-bottom; only the colour of each box changes between stages.
+
+![Florence-2 two-stage fine-tuning diagram showing which components are frozen vs trainable in Stage 1 (Vocabulary Alignment) and Stage 2 (Decoder Refinement)](images/florence2_two_stage_freezing.png)
+
+**The logic behind this freezing pattern** — three decisions explain almost everything:
+
+1. **The vision encoder is *never* trainable in this recipe.** Florence-2's DaViT was pre-trained on FLD-5B (a vast visual corpus) and already separates entities, jersey-like patches, scene context, and text-bearing regions extremely well for natural images. Letting the vision encoder drift in the service of grammar learning (Stage 1) or grounding (Stage 2) is a recipe for catastrophic forgetting — the model gets better on your training distribution and worse on every league, lighting condition, or sport you haven't seen. Stage 3 of the production curriculum (deliberately omitted here) does adapt the late DaViT stages with surgical LoRA, but only when the visual domain is genuinely different from natural images.
+
+2. **Stage 1 makes the new vocabulary part of the model.** The freshly-registered custom tokens (`<MULTIMODAL_VISUAL_CAPTION>`, `<stype>`, `<team>`, all the `<player_N>` pairs, etc.) start with random-ish initialisations — they have no semantic content. To learn good embeddings for them, the shared embedding matrix must be **trainable**, and because Florence-2 ties four pointers to that one matrix (`encoder.embed_tokens`, `decoder.embed_tokens`, `model.shared`, `lm_head`), training the shared matrix automatically trains the lm_head too. The full decoder is also trainable in Stage 1 because the decoder has to learn the *grammar* — what tokens come in what order — and that requires real plasticity, not just adapter-sized capacity. Only the encoder layers and layernorms are frozen, so the encoder doesn't drift while the decoder learns its new vocabulary.
+
+3. **Stage 2 makes the new vocabulary visually grounded — cheaply.** After Stage 1 the model can emit syntactically valid output but the boxes/OCR may point at the wrong things. Stage 2 fixes this with tiny LoRA adapters on the decoder's attention projections — and *only* those projections, because cross-attention is the mechanism by which the decoder "looks at" the (frozen) visual features. Everything else is frozen so the Stage 1 vocabulary alignment is locked in. Only ~0.3% of parameters end up trainable. This stage is fast, hard to overfit, and the resulting LoRA can be merged back into the base linear weights at save time for zero-overhead inference.
+
+The `freeze_*` helper names in the diagram (`freeze_vision_encoder`, `freeze_bart_encoder_layers`, `inject_decoder_lora`) are short utility functions you implement once and reuse across both stages — see each stage's *"How freezing actually works"* paragraph below for the exact pattern.
+
+---
+
 ## Stage 1 — Vocabulary alignment
 
 ### Freezing policy

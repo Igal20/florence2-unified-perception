@@ -1,0 +1,63 @@
+name: Adapting the recipe to my domain
+description: You're porting the recipe to a non-sports domain and hit a design decision the ADAPT_TO_YOUR_DOMAIN guide doesn't cover.
+title: "[Adaptation] "
+labels: ["adaptation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying the recipe outside sports!
+
+        Before filing, please check that:
+        - You've read [`ADAPT_TO_YOUR_DOMAIN.md`](../blob/main/recipe/docs/ADAPT_TO_YOUR_DOMAIN.md) end-to-end.
+        - You're filing a **design question**, not a **show-and-tell post**. If you just want to share what you built or your results, please post in [Discussions → Share your domain adaptation](../discussions) instead.
+
+  - type: textarea
+    id: domain
+    attributes:
+      label: Domain
+      description: One sentence about what you're building.
+      placeholder: "e.g. retail shelf inspection — products on supermarket shelves with prices and stock state."
+    validations:
+      required: true
+
+  - type: textarea
+    id: schema
+    attributes:
+      label: Proposed schema
+      description: |
+        The per-image token structure you're considering (analogue of `<stype><nath><player_N>…<gdesc>`). Even an informal sketch is fine; we'll help you refine.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: decision
+    attributes:
+      label: The design decision you're stuck on
+      description: |
+        What you're trying to decide, what the options are, what you've already ruled out and why.
+      placeholder: "e.g. should I use one `<product_N>` block per detected product, or one big `<products>` block with a JSON-like list inside?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: dataset
+    attributes:
+      label: Dataset characteristics
+      description: |
+        - Rough size (hundreds, thousands, tens of thousands)
+        - Typical entity count per image
+        - Whether you need OCR (and roughly how long the typical text is)
+        - Whether bounding boxes alone are enough, or you need polygons
+        - Whether you need per-entity attributes beyond bbox + OCR (analogue of `<team>`)
+    validations:
+      required: false
+
+  - type: textarea
+    id: prior_attempts
+    attributes:
+      label: What you've already tried
+      description: Optional. Other architectures, other VLMs, other recipes you considered or partially implemented.
+    validations:
+      required: false

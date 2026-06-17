@@ -1,0 +1,81 @@
+name: Stuck on Stage 1 or Stage 2
+description: You're following the recipe and the training has gone sideways — loss won't decrease, schema compliance plateaus, OCR is broken, etc.
+title: "[Training] "
+labels: ["training", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file this. The more structured information you can give, the faster we can help.
+
+        Before filing, please check that most "stuck" cases are covered in:
+        - [`TWO_STAGE_TRAINING.md` → Knobs worth sweeping](../blob/main/recipe/docs/TWO_STAGE_TRAINING.md#knobs-worth-sweeping-when-the-baseline-isnt-quite-enough)
+        - [`TWO_STAGE_TRAINING.md` → Resume / restart cookbook](../blob/main/recipe/docs/TWO_STAGE_TRAINING.md#resume--restart-cookbook)
+        - [`INFERENCE.md` → Common failure modes](../blob/main/recipe/docs/INFERENCE.md)
+
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Which training stage?
+      options:
+        - Stage 1 — Vocabulary alignment
+        - Stage 2 — Decoder LoRA + weighted loss
+        - Both
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: symptom
+    attributes:
+      label: What's the symptom?
+      description: Concrete failure mode — loss curve, schema-compliance number, sample generations. A screenshot of your wandb / tensorboard loss curve is great.
+      placeholder: "e.g. Stage 1 schema compliance plateaus at 0.78 after 2 epochs and never improves."
+    validations:
+      required: true
+
+  - type: textarea
+    id: setup
+    attributes:
+      label: Your setup
+      description: |
+        - Florence-2 base variant (-large-ft, -base-ft, etc.)
+        - GPU(s) and VRAM
+        - Precision (fp32 / bf16 / fp16) and whether gradient checkpointing is on
+        - Batch size, learning rate, any hyper-parameters you changed from the recipe defaults
+        - Dataset size (rough)
+    validations:
+      required: true
+
+  - type: textarea
+    id: tokens
+    attributes:
+      label: Token registration (Stage 1 issues only)
+      description: |
+        For Stage 1 problems specifically, please paste:
+        - `len(processor.tokenizer)` *before* `add_special_tokens`
+        - `len(processor.tokenizer)` *after* `add_special_tokens`
+        - `model.get_input_embeddings().num_embeddings` after `resize_token_embeddings`
+        - `model.lm_head.weight.shape[0]`
+        The most common Stage 1 failure is a tied-weight mismatch where one of these numbers is wrong.
+      placeholder: "e.g. tokenizer before=51289, after=51310, embed=51310, lm_head=51310"
+    validations:
+      required: false
+
+  - type: textarea
+    id: sample_generation
+    attributes:
+      label: Sample generation (for compliance / OCR issues)
+      description: |
+        Paste one *generated* string (with `skip_special_tokens=False`, see `INFERENCE.md`) alongside the ground-truth target for the same image. Don't strip the special tokens — they are the schema.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What did you already try?
+      description: Knobs you've already swept, sections of the recipe you've already re-read, etc. Helps us avoid suggesting things you've ruled out.
+    validations:
+      required: false

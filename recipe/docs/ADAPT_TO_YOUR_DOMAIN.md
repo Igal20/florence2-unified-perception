@@ -75,7 +75,21 @@ The parser at inference time is the inverse of the serialiser. Rename the regex 
 
 ## Step 5 — Update the schema-compliance early-stop regexes
 
-The Stage 1 early-stop checks are short regex patterns (`<shelf_type>` is present, balanced `<prod_N>...</prod_N>`, `<nprod>` count matches the number of entity blocks, well-formed bbox, etc.). Rename them to match your tokens. Keep the rule that ≥ 95% of validation generations must pass before Stage 1 exits.
+The Stage 1 early-stop runs **eight** per-output checks combined with boolean AND — the full list, including the `<nath>0` edge case and the exact generation config, is in [`TWO_STAGE_TRAINING.md` → Early stop](TWO_STAGE_TRAINING.md#early-stop). When you rename tokens you must rewrite every check that references one of them.
+
+For the retail example the rewrite is mechanical:
+
+| Sports check | Retail rewrite |
+|---|---|
+| `<stype>[^<]+` | `<shelf_type>[^<]+` |
+| `<nath>\d+` | `<nprod>\d+` |
+| `set(<player_N>) == set(</player_N>)` | `set(<prod_N>) == set(</prod_N>)` |
+| `int(<nath>N) == count(<player_*>)` | `int(<nprod>N) == count(<prod_*>)` |
+| `has_ocr_format` (text + 8 locs) | **Drop** — no OCR span in this schema. Optionally add a `<price>\d+\.\d{2}` check if you want price-format validation as a ninth check. |
+| 4-coord `<bbox>` check, `</s>` check, `<gdesc>` check | Unchanged. |
+| `<nath>0` edge case (auto-pass player checks when count is zero) | Rename to `<nprod>0` — keep the carve-out, otherwise empty-shelf images are permanently incompliant. |
+
+Keep the aggregation (fraction over 50 val generations, threshold `0.95`, eval every 100 steps) and the generation config (`num_beams=3`, `max_new_tokens=1024`, `skip_special_tokens=False`) unchanged unless you have a specific reason to move them.
 
 ## Step 6 — Update the weighted-loss token classes
 

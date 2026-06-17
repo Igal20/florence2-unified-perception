@@ -75,7 +75,40 @@ Uniform cross-entropy. **Do not weight tokens in Stage 1** — biasing the loss 
 
 ### Early stop
 
-Every few hundred steps, generate on ~50 validation images and run cheap regex checks against the expected grammar (well-formed `<bbox>`, balanced `<player_N>...</player_N>`, `<nath>` count matches the number of player blocks, etc.). When ≥ 95% of generations *parse* — regardless of whether the content is right — Stage 1 is done. In practice this triggers within 1-2 epochs on a few thousand annotations.
+Every `EVAL_STEPS = 100` training steps (same cadence as the validation-loss eval), generate on the first **50** validation images and compute a **schema-compliance rate** — the fraction of generations whose token sequence parses against the expected grammar. When that rate reaches **≥ 0.95**, Stage 1 exits.
+
+**The eight per-output checks.** All eight must pass for a single generation to count as compliant (boolean AND — not a weighted score, not a K-of-N threshold):
+
+| # | Check | Regex / rule | What it catches |
+|---|---|---|---|
+| 1 | `has_stype` | `<stype>[^<]+` | `<stype>` is present with non-empty content before the next tag |
+| 2 | `has_nath` | `<nath>\d+` | `<nath>` is followed by an integer |
+| 3 | `has_gdesc` | `<gdesc>.+` | `<gdesc>` has at least one character of description after it |
+| 4 | `has_eos` | `</s>` is present | The sequence terminates with EOS (an un-terminated sequence is broken even if everything before it parses) |
+| 5 | `has_player_block` | `<player_\d+><bbox><loc_\d+>{×4}</bbox>` | At least one player block opens with the canonical 4-loc bbox shape |
+| 6 | `player_blocks_closed` | `set(<player_N>) == set(</player_N>)` | Every player block that opens also closes (set equality on the indices) |
+| 7 | `has_ocr_format` | conditional: if `<ocr>` appears anywhere, at least one `<ocr>{TEXT}<loc_\d+>{×8}` must match | OCR polygons have all 8 loc tokens (not 4, not 6). Skipped entirely when no `<ocr>` is in the generation. |
+| 8 | `nath_consistent` | `int(<nath>N) == count(<player_*>)` | The integer after `<nath>` equals the number of opened player blocks — the schema's only cross-field integrity check |
+
+**Edge case — no-player scenes.** When `<nath>0` is generated, checks 5 and 6 are auto-passed (there are no players, so there are no player blocks to find or close). Without this carve-out, an empty-stadium image would be permanently incompliant.
+
+**Generation config used by the check.** These settings affect the compliance number; if you change them the threshold is no longer comparable:
+
+```python
+gen_ids = model.generate(
+    input_ids=inputs["input_ids"],
+    pixel_values=inputs["pixel_values"],
+    max_new_tokens=1024,
+    num_beams=3,
+)
+texts = processor.batch_decode(gen_ids, skip_special_tokens=False)  # MUST be False
+```
+
+`skip_special_tokens=False` is non-negotiable — the entire schema is built from special tokens; with the default `True` you'd be regex-matching against empty strings and every check would fail.
+
+**Aggregation.** `compliant_count / total_count` over the first 50 validation samples encountered. In DDP, only rank 0 runs the check; the boolean `>= 0.95` decision is broadcast to every rank to prevent deadlock. In practice the rate climbs past 0.95 within 1-2 epochs on a few thousand annotations.
+
+**Why this metric and not validation loss?** A model can have a beautifully decreasing cross-entropy loss while still producing structurally broken sequences (one missing `</player_2>` tag silently shifts every downstream parser by one player). The schema-compliance rate catches that immediately; the loss does not.
 
 ### Hyper-parameters that matter
 

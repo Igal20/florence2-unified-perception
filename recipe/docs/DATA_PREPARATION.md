@@ -49,6 +49,57 @@ Florence-2 ships 1000 special location tokens `<loc_0>` … `<loc_999>` that dis
 
 `dim` is `width` for x-coordinates, `height` for y-coordinates. Boxes use 4 such bins, polygons use 8 (4 (x, y) pairs). The Medium post explains why creating new `<loc_*>` tokens is strictly worse than reusing the pretrained ones.
 
+## Worked example
+
+To make the contract concrete, here is one image, its annotation file, and the exact token string the serialiser must produce for it. The image is 1024 × 682 px and contains two hockey players, both with readable jersey numbers.
+
+![Two hockey players battling for the puck along the boards — one in a green Forest Trykers #28 jersey, one in a maroon Iron Falcons #45 jersey](images/example_hockey.jpg)
+
+**`example_hockey.json`** — the annotation in the contract format above:
+
+```json
+{
+  "image_size": [1024, 682],
+  "scene_type": "In-Game",
+  "general_description": "Two hockey players battle for the puck along the boards: a Forest Trykers forward wearing #28 attempts to shield it from the opposing Iron Falcons captain #45.",
+  "players": [
+    {
+      "bbox": [220, 30, 560, 670],
+      "ocr": [
+        { "text": "28", "polygon": [[275, 150], [360, 150], [360, 215], [275, 215]] }
+      ]
+    },
+    {
+      "bbox": [510, 90, 820, 660],
+      "ocr": [
+        { "text": "45", "polygon": [[685, 265], [750, 265], [750, 320], [685, 320]] }
+      ]
+    }
+  ]
+}
+```
+
+**Serialised token string** — exactly what the decoder must learn to emit for this image (the `<loc_*>` indices are computed from the pixel coordinates above using the quantisation formula in the previous section):
+
+```
+<MULTIMODAL_VISUAL_CAPTION><stype>In-Game<nath>2
+  <player_1><bbox><loc_214><loc_43><loc_546><loc_982></bbox>
+    <ocr>28<loc_268><loc_219><loc_351><loc_219><loc_351><loc_315><loc_268><loc_315>
+  </player_1>
+  <player_2><bbox><loc_498><loc_131><loc_800><loc_967></bbox>
+    <ocr>45<loc_668><loc_388><loc_732><loc_388><loc_732><loc_469><loc_668><loc_469>
+  </player_2>
+<gdesc>Two hockey players battle for the puck along the boards: a Forest Trykers forward wearing #28 attempts to shield it from the opposing Iron Falcons captain #45.</s>
+```
+
+Things worth noticing in the string above:
+
+* **`<nath>2`** — the explicit entity count must equal the number of `<player_N>` blocks. The model checks this against itself, and a mismatch is a strong "this generation went off the rails" signal at inference time.
+* **OCR text and its polygon are adjacent** — `<ocr>28<loc_...>` and `<ocr>45<loc_...>`. That gluing (rule 4 of the grammar) is what binds the recognised text to a region of the image and suppresses free-floating jersey-number hallucinations.
+* **The indentation and newlines above are for human readability only.** The actual training target is a single contiguous string with no whitespace inserted.
+* **A player whose number is occluded** would simply have no `ocr` field at all — never an empty list, never an empty `<ocr></ocr>` block. Rule 5.
+* **`<gdesc>` is last**, immediately before `</s>`. Pick one slot and stay with it across the entire dataset.
+
 ## Three routes to a dataset
 
 The annotation contract above is small, but actually producing thousands of annotations is the hard part. Pick whichever fits your budget:

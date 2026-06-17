@@ -69,4 +69,4 @@ This is intentional. The value is in the decisions (which tokens, what grammar, 
 
 ## Get in touch
 
-Tried this on your data? Got it working on a non-sports domain? Stuck on Stage 2? Open an issue on this repo or ping [Igal on LinkedIn](https://www.linkedin.com/) — we genuinely want to know which multi-task perception problem this pattern unlocks for you.
+Tried this on your data? Got it working on a non-sports domain? Stuck on Stage 2? Open an issue on this repo or ping [Igal on LinkedIn](https://www.linkedin.com/in/igal-dmitriev-34293522) — we genuinely want to know which multi-task perception problem this pattern unlocks for you.

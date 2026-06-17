@@ -16,7 +16,27 @@ One image, one annotation file with the same stem, containing these fields (name
 | `players[i].team` | optional per entity | Team-affiliation label from a small closed vocabulary, e.g. `"A"` or `"B"`. Omit (do not set to `null`) when affiliation can't be determined — referees, partial occlusion, unaffiliated bystanders. |
 | `players[i].ocr` | optional per entity | List of `{text, polygon}` items. Polygon = 4 `[x, y]` points in pixel space. |
 
-A held-out benchmark set should live outside this dataset (or be flagged by a hash list and filtered out of train/val) so you can evaluate without leakage.
+### The `scene_type` vocabulary
+
+The closed scene-type vocabulary we used has nine classes — anything outside it collapses to `"Other"` (the ninth class). Pick a vocabulary of similar size for your domain (3-12 classes works; 30+ classes blurs the boundary between scene classification and free-form description and the model stops gaining from the structured label).
+
+| Class | Definition |
+|---|---|
+| `In-Game` | Action on the field/court/ice during competition. |
+| `Interview` | One-on-one or group interviews (on-site or studio). |
+| `Press Conference` | Formal media session with podium/backdrop/mics. |
+| `Warm-ups` | Pre-game athlete activity (stretching, drills, layups). |
+| `Player Arrivals` | Athletes entering venue, tunnel walks, pre-game arrivals. |
+| `Locker Room` | Locker room scenes (pre, post, halftime). |
+| `Winning Ceremony` | Trophy lifts, medal presentations, confetti moments. |
+| `Fan Atmosphere` | Crowd shots, chants, fan reactions and celebrations. |
+| `Other` | Everything not covered above; ambiguous contexts; the safety net for typos and unknown values. |
+
+### Splits and held-out benchmark
+
+* **Default train / val / test = `[0.80, 0.10, 0.10]`** with a deterministic, seeded shuffle on a stable filename ordering. Pin the seed across runs or your eval numbers won't be comparable. We used `[0.85, 0.10, 0.05]` for the production curriculum because the dataset was large enough that 5% was a comfortable test slice.
+* **Held-out benchmark set is excluded by perceptual hash.** Each annotation JSON carries an `image.p_hash` field — the 64-bit pHash of the source image, computed once during data prep (we used the `imagehash.phash` library; the canonical lowercase hex string is what lives in the JSON). The benchmark CSV is a flat column of these hex strings. At dataset-load time, every image whose `p_hash` matches a benchmark hash by **exact string equality** (case-normalised, whitespace-stripped — *no Hamming-distance radius*) is dropped from train and val. This is intentionally stricter than typical pHash dedup: a Hamming radius would also drop near-duplicates *inside* your training set, and for broadcast-style data with many similar frames of the same play you usually want to keep those.
+* **Why not just split by source-file path?** Broadcast frames are typically extracted from contiguous video; consecutive frames are near-identical but live in different files. A path-based split puts those near-duplicates in both train and test and inflates your test accuracy by 10-30 points. Hash-based exclusion catches what the path-based split misses.
 
 ## The grammar your serialiser must produce
 
@@ -116,6 +136,43 @@ Things worth noticing in the string above:
 * **The indentation and newlines above are for human readability only.** The actual training target is a single contiguous string with no whitespace inserted.
 * **A player whose number is occluded** would simply have no `ocr` field at all — never an empty list, never an empty `<ocr></ocr>` block. Same for `<team>` when the team can't be determined. Rule 6.
 * **`<gdesc>` is last**, immediately before `</s>`. Pick one slot and stay with it across the entire dataset.
+
+## Training-time image preprocessing
+
+Once the annotation contract is settled, the per-image pipeline at training time is short but specific. Every choice here affects schema compliance, OCR accuracy, and how well the model holds up on unseen broadcasts.
+
+### The full pipeline, in order
+
+| Step | What it does | Notes |
+|---|---|---|
+| 1. `PIL.Image.open(path)` | Lazy-load. | |
+| 2. Apply EXIF orientation | Rotate per the camera's EXIF `Orientation` flag. | Skipping this is the #1 silent-killer bug — phone uploads (portrait orientation) end up rotated 90° relative to their pixel-space annotations and every bbox is wrong. |
+| 3. Force RGB mode | Convert from RGBA / L / CMYK / palette to RGB. | A single CMYK image in the loader silently crashes the processor halfway through training. |
+| 4. Training-only augmentations | See the augmentation table below. | Val / test get **none** of these — only steps 1, 2, 3, and the final resize. |
+| 5. Final resize to `(768, 768)` | Plain `image.resize(..., resample=BICUBIC)` — **stretch, not letterbox.** | Florence-2's processor expects square 768×768. Stretching distorts aspect ratio, but it's fine because all coordinates are normalised to `[0, 1]` *before* the resize, so they keep their correct relative positions. |
+| 6. `processor(images=..., text=task_prompt, return_tensors="pt", padding=True)` | Florence-2's `CLIPImageProcessor`: another resize to 768×768 if step 5 wasn't done, then `rescale = 1/255` then ImageNet normalisation (`mean = [0.485, 0.456, 0.406]`, `std = [0.229, 0.224, 0.225]`). Center crop is **off**. | Step 5's resize is technically redundant with the processor's resize, but doing it explicitly in the dataset makes the augmentations operate at the final scale, not the original resolution — more deterministic loss behaviour. |
+
+### The augmentation policy (training split only)
+
+The augmentation policy is **OCR-aware** — when the sample has at least one `<ocr>` item, the heavier transforms are dialled back or skipped entirely to protect text edges. The numbers below are the production defaults; the OCR-aware branches are the small details that lift OCR CER by 3-5 points.
+
+| Augmentation | Probability (per sample) | Range | OCR-aware? |
+|---|---|---|---|
+| Photometric "block" (gates the next 4) | 80% | — | no |
+| ↳ Brightness | 50% within block | ±15% | no |
+| ↳ Contrast | 50% within block | ±15% | no |
+| ↳ Saturation | 50% within block | ±20% | no |
+| ↳ Sharpness | 30% within block | ±10% | no |
+| Convert to grayscale (then back to 3-channel RGB) | 5% | — | no (same rate for OCR and non-OCR) |
+| Gaussian blur | **3% if OCR present**, **20% otherwise** | radius `0.1-0.3` (OCR) or `0.5-1.0` (no OCR) | yes |
+| Multi-scale downsample-then-upsample (off by default — `USE_MULTI_SCALE=False`) | 40% if enabled | scale `0.95-0.98` (OCR) or `0.7-0.95` (no OCR), random resample mode on the up-pass | yes |
+| Gentle re-sharpening for OCR samples | 15% (OCR samples only) | factor `1.02-1.08` | yes |
+
+**No geometric augmentations.** No random crops, no horizontal flips, no rotation — every one of those would invalidate the bbox / polygon coordinates that are already locked in by the annotation. If you add geometric augmentation later you must propagate the same transform through the `<loc_*>` quantiser, and a left-right flip is *especially* dangerous for sports because handedness, jersey-side numbers, and team-side conventions all break.
+
+### Loss masking on padded regions
+
+There is no image-side padding to mask — the resize is to a fixed square. The only mask is on the *text* side: padded label positions are set to `IGNORE_INDEX = -100`, and the weighted-CE loss zeroes their weight before the reduction (see the snippet in [`TWO_STAGE_TRAINING.md` → Loss](TWO_STAGE_TRAINING.md#loss--token-weighted-cross-entropy-with-two-boosts)).
 
 ## Three routes to a dataset
 

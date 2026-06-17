@@ -61,6 +61,12 @@ This is intentional. The value is in the decisions (which tokens, what grammar, 
 
 ---
 
+## License
+
+[MIT](LICENSE) — © 2025-2026 Igal Dmitriev and Ofir Liba. You can quote, fork, adapt, and reuse both the code and the prose freely, as long as the copyright notice is preserved.
+
+---
+
 ## Get in touch
 
 Tried this on your data? Got it working on a non-sports domain? Stuck on Stage 2? Open an issue on this repo or ping [Igal on LinkedIn](https://www.linkedin.com/) — we genuinely want to know which multi-task perception problem this pattern unlocks for you.

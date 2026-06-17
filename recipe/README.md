@@ -51,6 +51,8 @@ After training, one image goes in. One forward pass later, you get a single toke
 
 Detection, OCR (jersey numbers with polygons), team affiliation (`<team>A`/`<team>B`), entity association, and a natural-language description — all in one structured output, all bound to each player by construction. Parsing is a handful of regex passes.
 
+The leading `<MULTIMODAL_VISUAL_CAPTION>` is the **input task prompt** that activates this behaviour (registered as a custom Florence-2 task prompt — see [`docs/TOKENS.md`](docs/TOKENS.md#the-task-prompt-token)). The decoder itself only generates the portion from `<stype>` onwards; everything before that is the input you pass to the processor.
+
 That single string is the heart of the recipe. The entire training pipeline exists to teach a Florence-2 decoder to emit it correctly, given an image.
 
 ---

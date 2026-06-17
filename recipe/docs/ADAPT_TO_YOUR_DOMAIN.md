@@ -36,6 +36,7 @@ A few notes:
 
 * Shelves typically hold more entities than a sports scene shows players — raise the per-entity cap from 8 to 20 (or whatever your typical count + slack is). Florence-2 handles hundreds of structural tokens without difficulty.
 * Categorical attributes like `in_stock` become **new singleton tokens** (`<in_stock>` and `<out_of_stock>`). One token per value — never embed the value as plain text.
+* **Pick your own task-prompt token** (e.g. `<SHELF_INSPECTION>`) to replace `<MULTIMODAL_VISUAL_CAPTION>`. It plays the same role as in the sports recipe — registered alongside the structural tokens, passed as the encoder input at training and inference. See [`TOKENS.md`](TOKENS.md#the-task-prompt-token) for the mechanics.
 * Add the new tokens to the custom-token list and run the registration recipe in [`TOKENS.md`](TOKENS.md) on the base Florence-2.
 
 ## Step 3 — Update the grammar your serialiser produces
@@ -43,12 +44,14 @@ A few notes:
 Mirror the new structure. The *shape* of the output string stays the same — header tokens, then one block per entity, then a final description:
 
 ```
-<MULTIMODAL_VISUAL_CAPTION><shelf_type>{CLASS}<nprod>{N}
+<SHELF_INSPECTION><shelf_type>{CLASS}<nprod>{N}
   <prod_1><bbox><loc_*x4></bbox><in_stock><ocr>{BRAND/PRICE}<loc_*x8></prod_1>
   <prod_2><bbox><loc_*x4></bbox><out_of_stock></prod_2>
   ...
 <shelf_desc>{FREE TEXT}</s>
 ```
+
+As in the sports recipe, the leading `<SHELF_INSPECTION>` is the *input* task prompt (replace with whatever name you picked in Step 2); the decoder's actual output starts from `<shelf_type>`.
 
 When updating the serialiser, the only domain-specific decisions are:
 

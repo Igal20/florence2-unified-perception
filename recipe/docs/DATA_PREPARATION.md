@@ -33,6 +33,8 @@ For one image, the serialised string must look exactly like this — same token 
 <gdesc>{FREE TEXT}</s>
 ```
 
+> **What `<MULTIMODAL_VISUAL_CAPTION>` is** — a custom task-prompt token that you register alongside the structural tokens (see [`TOKENS.md`](TOKENS.md#the-task-prompt-token)). It's the *input* to the encoder, not part of the decoder's output. The template above shows the full conceptual sequence (input prompt + decoder output, concatenated) for readability; the model itself only generates from `<stype>` onwards. How you handle the prompt at training time (separate `labels` tensor vs. prompt-masked concatenated string) is up to your training recipe.
+
 Rules the LLM you task with building the serialiser must respect:
 
 1. **Header first.** `<stype>{class}` then `<nath>{count}` always come before any player block.
@@ -88,7 +90,7 @@ To make the contract concrete, here is one image, its annotation file, and the e
 
 > **Note on the `// ...` lines** — those are illustrative comments showing where additional OCR items would go in a real annotation; they are **not** part of the contract. A strict JSON file has no comments. Each `ocr` array can hold **0..N** items per player; the worked example shows one each because that's all the imagery cleanly contains.
 
-**Serialised token string** — exactly what the decoder must learn to emit for this image (the `<loc_*>` indices are computed from the pixel coordinates above using the quantisation formula in the previous section):
+**Serialised token string** — the full conceptual sequence (encoder input prompt + decoder-generated output, concatenated). The decoder only emits the portion from `<stype>` onwards; the leading `<MULTIMODAL_VISUAL_CAPTION>` is the input passed through the processor (see [`TOKENS.md`](TOKENS.md#the-task-prompt-token)). The `<loc_*>` indices are computed from the pixel coordinates above using the quantisation formula in the previous section:
 
 ```
 <MULTIMODAL_VISUAL_CAPTION><stype>In-Game<nath>2

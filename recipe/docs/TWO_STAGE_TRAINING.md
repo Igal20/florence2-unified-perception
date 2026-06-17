@@ -129,10 +129,43 @@ Per-token weighted CE with three weight classes and two on-top boosts:
 
 | Token class | Suggested weight | Examples |
 |---|---|---|
-| HIGH | `5.0` | `<bbox>`, `</bbox>`, `<player_N>`, `</player_N>`, `<stype>`, `<nath>`, all `<loc_*>` |
+| HIGH | `5.0` | `<bbox>`, `</bbox>`, `<player_N>`, `</player_N>`, `<stype>`, `<nath>`, `</s>`, all `<loc_*>` |
 | OCR (highest) | `12.0` | `<ocr>` and the content tokens that follow it (jersey-number text + 8 `<loc_*>`) |
 | LOW | `0.7` | `<gdesc>` and the long natural-language span after it |
 | Default | `1.0` | Everything else |
+
+**Building the per-token weight tensor.** The weights above are per-token-*class*, but cross-entropy applies them per-token-*id*. You need to convert each class's token names into integer ids using the loaded (and registration-completed) tokenizer, then build the weight mask per batch by table-lookup against the labels. The full pattern is short:
+
+```python
+# ---- Once, after the tokenizer has the custom tokens registered (see TOKENS.md): ----
+vocab = tokenizer.get_vocab()
+
+HIGH_IDS = {vocab[t] for t in ("<bbox>", "</bbox>", "<stype>", "<nath>", "</s>") if t in vocab}
+HIGH_IDS |= {vocab[f"<player_{i}>"]  for i in range(1, 9) if f"<player_{i}>"  in vocab}
+HIGH_IDS |= {vocab[f"</player_{i}>"] for i in range(1, 9) if f"</player_{i}>" in vocab}
+HIGH_IDS |= {vocab[f"<loc_{i}>"]     for i in range(1000) if f"<loc_{i}>"     in vocab}   # the 1000 location bins
+
+OCR_IDS              = {vocab["<ocr>"]}
+LOW_IDS              = {vocab["<gdesc>"]}
+CONTENT_TRIGGER_IDS  = {vocab["<ocr>"], vocab["<stype>"]}   # tokens that open a boosted content span
+
+# ---- Per batch, inside the loss forward: ----
+weights = torch.ones_like(labels, dtype=torch.float32)              # default = 1.0
+for tid in HIGH_IDS: weights[labels == tid] = HIGH_WEIGHT            # 5.0
+for tid in OCR_IDS:  weights[labels == tid] = OCR_WEIGHT             # 12.0  (trigger itself; content boost extends this)
+for tid in LOW_IDS:  weights[labels == tid] = LOW_WEIGHT             # 0.7
+# ... then layer the content + positional boosts (next two bullets) on top of `weights` ...
+weights[labels == IGNORE_INDEX] = 0.0                                # mask padding (the standard -100 sentinel)
+
+per_token_ce = F.cross_entropy(logits.flatten(0, 1), labels.flatten(), reduction="none", ignore_index=IGNORE_INDEX)
+loss = (per_token_ce * weights.flatten()).sum() / weights.flatten().sum().clamp(min=1.0)
+```
+
+**Three pitfalls in this construction that will silently corrupt training:**
+
+* **Don't prefix-match on token strings.** Use exact dictionary lookups (`vocab[token]`) and verify each lookup succeeds. Substring matches on `<player_` will conflate `<player_1>` with `<player_10>` (if you ever raise `MAX_PLAYER_INDEX`); substring matches on `<loc_` will conflate `<loc_1>` with `<loc_100>`. Wrong ids in the id-sets means wrong tokens get weighted, which is undetectable by every standard training-loss curve.
+* **Don't cache the id-sets across a tokenizer change.** If you add or remove any custom token (a new `<player_9>`, a new attribute token, etc.) you must (a) re-run the registration block in [`TOKENS.md`](TOKENS.md), (b) re-load the model + processor from the new snapshot, and (c) **rebuild these id-sets from the new tokenizer**. The string-to-id mapping changes after every `add_special_tokens` call.
+* **Don't assume `<loc_*>` ids are contiguous.** Florence-2 happens to assign them contiguously today, but the canonical source of truth is the dictionary lookup. Iterating with `range(loc_0_id, loc_999_id + 1)` will break the moment the underlying tokenizer is rebuilt or you swap in a different base model.
 
 Two boosts layered on top:
 

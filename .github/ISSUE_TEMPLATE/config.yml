@@ -1,8 +1,0 @@
-blank_issues_enabled: false
-contact_links:
-  - name: 💬 Share your domain adaptation
-    url: https://github.com/Igal20/florence2-unified-perception/discussions
-    about: Got results, gotchas, or work-in-progress to share? Post it in Discussions rather than filing an issue.
-  - name: 📖 Recipe documentation
-    url: https://github.com/Igal20/florence2-unified-perception/tree/main/recipe
-    about: Most "stuck" cases are answered in the recipe docs — please skim before filing.

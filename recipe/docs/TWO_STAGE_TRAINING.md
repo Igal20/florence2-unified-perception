@@ -41,6 +41,20 @@ The `freeze_*` helper names in the diagram (`freeze_vision_encoder`, `freeze_bar
 
 ---
 
+## Compute, precision, and memory
+
+The reference recipe runs in **plain fp32 with no gradient checkpointing**. On Florence-2-large at 768×768 input resolution this fits a batch of 16 on a single A100-40GB; on a 24 GB card you almost certainly need either bf16 autocast, gradient checkpointing, or both. Three knobs that reclaim a lot of VRAM without changing anything about the recipe:
+
+| Knob | One-liner | Typical memory saving | Trade-off |
+|---|---|---|---|
+| bf16 mixed precision | Wrap the forward + backward in `with torch.autocast(device_type="cuda", dtype=torch.bfloat16):`. No `GradScaler` needed for bf16 (only fp16 needs it). | ~30-50% activations; further savings if you also keep weights in bf16 | Slightly noisier loss; rarely matters for fine-tuning. **Prefer bf16 over fp16** — BART-family decoders are known to be fp16-unstable on long target sequences (the schema's full token sequence is routinely 800-1200 tokens). |
+| Gradient checkpointing | `model.gradient_checkpointing_enable()` after the model loads, *and* set `model.config.use_cache = False` (the two are incompatible during training). | ~30-50% activations | ~20% slower step time. Re-enable `use_cache = True` before inference or generation gets dramatically slower. |
+| Lower batch size + grad accumulation | Halve `BATCH_SIZE`, set `GRAD_ACCUM_STEPS = 2`. The effective batch is unchanged; the per-step loss curve is identical. | Linear with the batch reduction | Slightly slower wall-clock per gradient update. The cheapest knob to try first because it requires zero precision changes. |
+
+None of the three changes the recipe's hyper-parameters, freezing policy, weighted loss, or early-stop criterion — they only change how the same forward / backward fits in your hardware. Pick the smallest combination that lets your batch size match what the recipe assumes (`16` in Stage 1, `8` in Stage 2).
+
+---
+
 ## Stage 1 — Vocabulary alignment
 
 ### Freezing policy
@@ -109,6 +123,22 @@ texts = processor.batch_decode(gen_ids, skip_special_tokens=False)  # MUST be Fa
 **Aggregation.** `compliant_count / total_count` over the first 50 validation samples encountered. In DDP, only rank 0 runs the check; the boolean `>= 0.95` decision is broadcast to every rank to prevent deadlock. In practice the rate climbs past 0.95 within 1-2 epochs on a few thousand annotations.
 
 **Why this metric and not validation loss?** A model can have a beautifully decreasing cross-entropy loss while still producing structurally broken sequences (one missing `</player_2>` tag silently shifts every downstream parser by one player). The schema-compliance rate catches that immediately; the loss does not.
+
+### Other validation metrics (every `EVAL_STEPS = 100` steps)
+
+Schema compliance is the **stopping signal** — it tells you "the model has learnt the grammar, move on." It is not a shipping signal. Alongside it, every validation pass also computes four content-quality metrics. None of them gates Stage 1 exit, but all of them are what you actually look at to decide "is this model good enough for production?". They are computed for both stages, on the same val loader, with the same generation config (`max_new_tokens=1024, num_beams=3, skip_special_tokens=False`).
+
+| Metric | Definition | Reasonable target by end of Stage 2 |
+|---|---|---|
+| Validation loss (token-weighted CE) | The same weighted loss used at train time, recomputed on val. Strongly affected by the per-token weights — **not** directly comparable across sweeps that change the weights. | Decreasing monotonically; flat plateau = stop. |
+| Player count accuracy | Fraction of val samples where the integer after `<nath>` equals the number of `<player_N>` blocks in the same generation. Probes the same cross-field consistency that schema check 8 enforces, but on real predictions instead of a regex pass/fail. | ≥ 0.95 |
+| Per-digit accuracy on jersey numbers | For each `<ocr>` block whose text is purely numeric, average per-position digit accuracy against the GT text. Robust to length differences (a 2-vs-3-digit miss is still scored on the shared digits). | ≥ 0.90 |
+| Character Error Rate (CER) on OCR text | Edit distance ÷ GT length, averaged across all `<ocr>` blocks. | Single digits (`<10%`) on jersey numbers; mid-double-digits on long ad-board text. |
+| Scene-type accuracy + 9×9 confusion matrix | Exact-string match of the generated `<stype>` value against GT, with the confusion matrix computed offline. The matrix is more informative than the headline accuracy — it tells you which two classes are colliding (commonly: `Warm-ups` vs `In-Game`, or `Press Conference` vs `Interview`). | ≥ 0.85 headline; no off-diagonal cell > 10% |
+
+The first four are logged every `EVAL_STEPS` steps. The scene-type confusion matrix is a separate offline script (it doesn't need to fire every 100 steps), but you'll want to look at it at least once per stage.
+
+**There is no detection mAP in this recipe.** Bounding boxes are evaluated implicitly via the weighted loss and qualitatively by eyeballing generated samples. If you need a hard detection number, post-process the generated `<bbox>` + `<loc_*>` blocks into a standard detection format and run COCO-style mAP offline — but be aware that token-space generation rarely matches a dedicated detector's mAP, and that's not what this recipe is optimising for.
 
 ### Hyper-parameters that matter
 
